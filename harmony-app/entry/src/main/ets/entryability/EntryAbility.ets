@@ -4,6 +4,7 @@ import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import { common, UIAbility } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BackendManager } from '../BackendManager';
+import { ImmersiveManager } from '../ImmersiveManager';
 import { KeepAliveManager } from '../KeepAliveManager';
 import { launchInProcessEarly, prepareDataDir } from '../BackendLauncher';
 import { LastExit, recordLastExit } from '../crash/LastExit';
@@ -34,6 +35,11 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
+    try {
+      ImmersiveManager.attach(windowStage.getMainWindowSync());
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'attach immersive window failed: %{public}s', JSON.stringify(e));
+    }
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'loadContent failed: %{public}s', JSON.stringify(err));

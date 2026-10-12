@@ -3,6 +3,7 @@ import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { ImmersiveManager } from './ImmersiveManager';
 
 const TAG: string = 'luker.keepalive';
 const DOMAIN: number = 0xE1EC;
@@ -244,5 +245,9 @@ function formatElapsed(ms: number): string {
 export class LukerHarmonyBridge {
   setGenerationActive(active: boolean): void {
     KeepAliveManager.setGenerationActive(active === true);
+  }
+
+  setImmersiveModeEnabled(enabled: boolean): void {
+    ImmersiveManager.setEnabled(enabled === true);
   }
 }

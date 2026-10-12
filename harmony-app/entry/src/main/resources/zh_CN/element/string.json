@@ -17,6 +17,7 @@
     { "name": "keepalive_notification_title", "value": "Luker 正在生成回复" },
     { "name": "keepalive_notification_text", "value": "已用时 %s" },
     { "name": "download_saved", "value": "文件已保存" },
-    { "name": "download_failed", "value": "下载失败" }
+    { "name": "download_failed", "value": "下载失败" },
+    { "name": "press_back_again_to_exit", "value": "再按一次返回键退出" }
   ]
 }

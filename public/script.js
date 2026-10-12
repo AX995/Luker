@@ -1016,7 +1016,7 @@ function setElementStylePriority(element, property, value, priority = '') {
 }
 
 function applyImmersiveLayoutOverrides(enabled) {
-    if (!isRunningInLukerAndroidApp()) {
+    if (!isRunningInLukerAndroidApp() && !isRunningInLukerHarmonyApp()) {
         return;
     }
     const sheld = document.getElementById('sheld');
@@ -1040,25 +1040,39 @@ function isRunningInLukerAndroidApp() {
         && typeof window.LukerAndroid === 'object';
 }
 
-function canUseAndroidImmersiveBridge() {
-    return isRunningInLukerAndroidApp()
-        && typeof window.LukerAndroid.setImmersiveModeEnabled === 'function';
+function isRunningInLukerHarmonyApp() {
+    return typeof window !== 'undefined'
+        && typeof window.LukerHarmony === 'object'
+        && window.LukerHarmony !== null;
 }
 
-function syncAndroidImmersiveMode(enabled, source = 'user') {
-    if (!canUseAndroidImmersiveBridge()) {
+function canUseNativeImmersiveBridge() {
+    if (isRunningInLukerAndroidApp()
+        && typeof window.LukerAndroid.setImmersiveModeEnabled === 'function') {
+        return true;
+    }
+    return isRunningInLukerHarmonyApp()
+        && typeof window.LukerHarmony.setImmersiveModeEnabled === 'function';
+}
+
+function syncNativeImmersiveMode(enabled, source = 'user') {
+    if (!canUseNativeImmersiveBridge()) {
         return;
     }
     try {
-        const bridge = window.LukerAndroid;
-        const resolvedSource = String(source || 'user');
-        if (typeof bridge.setImmersiveModeEnabledWithSource === 'function') {
-            bridge.setImmersiveModeEnabledWithSource(Boolean(enabled), resolvedSource);
+        if (isRunningInLukerAndroidApp()) {
+            const bridge = window.LukerAndroid;
+            const resolvedSource = String(source || 'user');
+            if (typeof bridge.setImmersiveModeEnabledWithSource === 'function') {
+                bridge.setImmersiveModeEnabledWithSource(Boolean(enabled), resolvedSource);
+                return;
+            }
+            bridge.setImmersiveModeEnabled(Boolean(enabled));
             return;
         }
-        bridge.setImmersiveModeEnabled(Boolean(enabled));
+        window.LukerHarmony.setImmersiveModeEnabled(Boolean(enabled));
     } catch (error) {
-        console.warn('Failed to sync Android immersive mode', error);
+        console.warn('Failed to sync native immersive mode', error);
     }
 }
 
@@ -1190,7 +1204,7 @@ function installAndroidFullscreenApiShim() {
 }
 
 function canUseFullscreenApi() {
-    if (isRunningInLukerAndroidApp()) {
+    if (isRunningInLukerAndroidApp() || isRunningInLukerHarmonyApp()) {
         return false;
     }
 
@@ -1301,7 +1315,7 @@ async function setImmersiveMode(enabled, { useFullscreen = true, persist = true,
         'luker-immersive-keep-top-bar',
         shouldEnable && Boolean(power_user.immersive_mode_keep_top_bar),
     );
-    syncAndroidImmersiveMode(shouldEnable, source);
+    syncNativeImmersiveMode(shouldEnable, source);
     applyImmersiveLayoutOverrides(shouldEnable);
     updateImmersiveModeUi();
 

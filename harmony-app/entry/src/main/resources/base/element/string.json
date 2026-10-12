@@ -17,6 +17,7 @@
     { "name": "keepalive_notification_title", "value": "Luker is generating a reply" },
     { "name": "keepalive_notification_text", "value": "Elapsed %s" },
     { "name": "download_saved", "value": "File saved" },
-    { "name": "download_failed", "value": "Download failed" }
+    { "name": "download_failed", "value": "Download failed" },
+    { "name": "press_back_again_to_exit", "value": "Press back again to exit" }
   ]
 }

@@ -13,11 +13,13 @@ import { exportTo } from '../crash/DiagnosticsExporter';
 import { writeArkWebExit } from '../crash/CrashCapture';
 import { LastExit } from '../crash/LastExit';
 import { KeepAliveManager, LukerHarmonyBridge } from '../KeepAliveManager';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 const TAG: string = 'luker.Index';
 const DOMAIN: number = 0xE1EC;
 const SERVER_URL: string = 'http://127.0.0.1:8000';
 const BOOT_TIMEOUT_MS: number = 120_000;
+const CONFIRM_EXIT_WINDOW_MS: number = 2000;
 
 @Entry
 @Component
@@ -29,6 +31,8 @@ struct Index {
   private exporting: boolean = false;
   private crashDialogDone: boolean = false;
   private saveTargets: Map<string, string> = new Map<string, string>();
+  private fsHandler: FullScreenExitHandler | null = null;
+  private lastExitPressAt: number = 0;
 
   aboutToAppear(): void {
     this.statusMessage = this.res($r('app.string.starting_engine').id, '0s');
@@ -125,7 +129,6 @@ struct Index {
     while (Date.now() - startedAt < BOOT_TIMEOUT_MS) {
       if (await this.probe()) {
         this.serverReady = true;
-        this.controller.loadUrl(SERVER_URL);
         return;
       }
       const secs: number = Math.round((Date.now() - startedAt) / 1000);
@@ -161,6 +164,51 @@ struct Index {
 
   sleep(ms: number): Promise<void> {
     return new Promise<void>((resolve) => setTimeout(() => resolve(), ms));
+  }
+
+  onBackPress(): boolean {
+    if (this.fsHandler !== null) {
+      this.lastExitPressAt = 0;
+      this.fsHandler.exitFullScreen();
+      return true;
+    }
+    try {
+      if (this.controller.accessStep(-1)) {
+        this.lastExitPressAt = 0;
+        this.controller.backward();
+        return true;
+      }
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'accessStep failed: %{public}s', JSON.stringify(e));
+    }
+    this.dispatchBackToWeb();
+    return true;
+  }
+
+  private dispatchBackToWeb(): void {
+    const script = "(function(){try{return (typeof window.__lukerHandleBack === 'function') ? String(window.__lukerHandleBack()) : 'noop';}catch(e){return 'noop';}})();";
+    this.controller.runJavaScript(script, (err: BusinessError, result: string) => {
+      if (err) {
+        hilog.error(DOMAIN, TAG, 'runJavaScript failed: %{public}s', JSON.stringify(err));
+      }
+      const value = String(result || '').trim().replace(/^"|"$/g, '').toLowerCase();
+      if (value === 'consumed') {
+        this.lastExitPressAt = 0;
+        return;
+      }
+      this.confirmExit();
+    });
+  }
+
+  private confirmExit(): void {
+    const now: number = Date.now();
+    if (this.lastExitPressAt !== 0 && now - this.lastExitPressAt <= CONFIRM_EXIT_WINDOW_MS) {
+      const context = getContext(this) as common.UIAbilityContext;
+      context.terminateSelf();
+      return;
+    }
+    this.lastExitPressAt = now;
+    promptAction.showToast({ message: this.res($r('app.string.press_back_again_to_exit').id) });
   }
 
   /**
@@ -244,33 +292,39 @@ struct Index {
 
   build() {
     Stack() {
-      Web({ src: $rawfile('loading.html'), controller: this.controller })
-        .width('100%')
-        .height('100%')
-        .javaScriptAccess(true)
-        .domStorageAccess(true)
-        .javaScriptProxy({
-          object: this.bridge,
-          name: 'LukerHarmony',
-          methodList: ['setGenerationActive'],
-          controller: this.controller
-        })
-        .onControllerAttached(() => {
-          this.setupDownloads();
-        })
-        // A reload or renderer exit drops the page's generation state, so the
-        // native flag must not outlive it.
-        .onPageBegin(() => {
-          KeepAliveManager.setGenerationActive(false);
-        })
-        .onRenderExited((event) => {
-          KeepAliveManager.setGenerationActive(false);
-          if (event && isArkWebCrashReason(event.renderExitReason)) {
-            writeArkWebExit(this.crashFilesDir(), event.renderExitReason);
-          }
-        })
-
-      if (!this.serverReady) {
+      if (this.serverReady) {
+        Web({ src: SERVER_URL, controller: this.controller })
+          .width('100%')
+          .height('100%')
+          .javaScriptAccess(true)
+          .domStorageAccess(true)
+          .javaScriptProxy({
+            object: this.bridge,
+            name: 'LukerHarmony',
+            methodList: ['setGenerationActive', 'setImmersiveModeEnabled'],
+            controller: this.controller
+          })
+          .onControllerAttached(() => {
+            this.setupDownloads();
+          })
+          // A reload or renderer exit drops the page's generation state, so the
+          // native flag must not outlive it.
+          .onPageBegin(() => {
+            KeepAliveManager.setGenerationActive(false);
+          })
+          .onRenderExited((event) => {
+            KeepAliveManager.setGenerationActive(false);
+            if (event && isArkWebCrashReason(event.renderExitReason)) {
+              writeArkWebExit(this.crashFilesDir(), event.renderExitReason);
+            }
+          })
+          .onFullScreenEnter((event) => {
+            this.fsHandler = event.handler;
+          })
+          .onFullScreenExit(() => {
+            this.fsHandler = null;
+          })
+      } else {
         Column({ space: 16 }) {
           Text('Luker').fontSize(24).fontWeight(FontWeight.Bold).fontColor('#cfd6e4')
           LoadingProgress().width(36).height(36).color('#4aa3ff')
