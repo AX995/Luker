@@ -103,12 +103,22 @@ function detachPipListeners() {
     pipListenersAttached = false;
 }
 
+// WebKit rejects requestPictureInPicture() outside a user gesture and while the
+// element is still HAVE_NOTHING; iOS also refuses to load media data without a
+// gesture. When the video was primed earlier, play() and the PiP request are
+// issued in the same synchronous turn so both run inside the caller's gesture.
 async function enterPip() {
     const video = ensurePipVideo();
     attachPipListeners();
     if (document.pictureInPictureElement === video) return;
-    await video.play();
-    await video.requestPictureInPicture();
+    if (video.readyState === HTMLMediaElement.HAVE_NOTHING) {
+        await video.play();
+        await video.requestPictureInPicture();
+        return;
+    }
+    const playPromise = video.play();
+    const pipPromise = video.requestPictureInPicture();
+    await Promise.all([playPromise, pipPromise]);
 }
 
 async function exitPip() {
@@ -291,6 +301,19 @@ export function isKeepAliveSupported() {
  */
 export function getAvailableWebModes() {
     return { pip: hasPipSupport(), audio: hasAudioSupport() };
+}
+
+/**
+ * Start loading the PiP video so a later setKeepAliveMode('pip') can request
+ * PiP synchronously. Call from a user-gesture handler: iOS only loads media
+ * data inside a gesture.
+ */
+export function primePipKeepAlive() {
+    if (!hasPipSupport()) return;
+    const video = ensurePipVideo();
+    if (video.readyState === HTMLMediaElement.HAVE_NOTHING) {
+        video.load();
+    }
 }
 
 /**

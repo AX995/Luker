@@ -42,6 +42,7 @@ import {
     initKeepAlive,
     isKeepAliveSupported,
     onKeepAliveStateChanged,
+    primePipKeepAlive,
     setKeepAliveMode,
 } from './luker-keep-alive.js';
 import {
@@ -652,13 +653,23 @@ function syncMobileKeepAliveUi() {
     }
 }
 
-async function chooseWebKeepAliveMode() {
+/**
+ * PiP must be requested inside the tap that picks it: the popup only resolves
+ * after its close animation, which is outside the gesture, so `onPipChosen`
+ * runs synchronously in the button's click handler.
+ * @param {() => void} onPipChosen
+ */
+async function chooseWebKeepAliveMode(onPipChosen) {
     const available = getAvailableWebModes();
     if (!available.pip && !available.audio) return null;
-    if (available.pip && !available.audio) return 'pip';
+    if (available.pip && !available.audio) {
+        onPipChosen();
+        return 'pip';
+    }
     if (!available.pip && available.audio) return 'audio';
 
     // Both available — let the user pick. Use customButtons so the choice itself is the answer.
+    primePipKeepAlive();
     const message = $('<div></div>').append(
         $('<h4></h4>').attr('data-i18n', 'Background keep-alive').text(t`Background keep-alive`),
         $('<p></p>').attr('data-i18n', 'Picture-in-Picture: a small floating window stays on screen. Does not interrupt music.').text(
@@ -671,7 +682,10 @@ async function chooseWebKeepAliveMode() {
     const result = await callGenericPopup(message, POPUP_TYPE.TEXT, '', {
         okButton: false,
         cancelButton: t`Cancel`,
-        customButtons: [t`Picture-in-Picture`, t`Audio`],
+        customButtons: [
+            { text: t`Picture-in-Picture`, result: 2, action: onPipChosen },
+            { text: t`Audio`, result: 3 },
+        ],
     });
     if (result === 2) return 'pip';
     if (result === 3) return 'audio';
@@ -728,14 +742,19 @@ async function applyMobileKeepAliveFromUser(checked) {
     // GENERATION_STARTED — the toggle click itself is the user gesture that
     // would be required, but we don't want to claim audio focus until there's
     // an actual generation to keep alive.
-    const desired = await chooseWebKeepAliveMode();
+    let pipAttempt = null;
+    const desired = await chooseWebKeepAliveMode(() => {
+        pipAttempt = setKeepAliveMode('pip');
+        // Rejection is handled below once the popup has closed.
+        pipAttempt.catch(() => { /* noop */ });
+    });
     if (!desired) {
         syncMobileKeepAliveCheckbox();
         return;
     }
     if (desired === 'pip') {
         try {
-            await setKeepAliveMode('pip');
+            await (pipAttempt ?? setKeepAliveMode('pip'));
             power_user.luker_mobile_keep_alive_web_audio_enabled = false;
             saveSettingsDebounced();
         } catch (_error) {
