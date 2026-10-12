@@ -100,6 +100,7 @@
 * @property {number} substituteRegex - Whether the regex should be substituted
 * @property {number} minDepth - The minimum depth
 * @property {number} maxDepth - The maximum depth
+* @property {boolean} [allowSlow] - Whether the user allowed this script to keep running despite slow execution
 */
 
 /**

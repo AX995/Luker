@@ -49,6 +49,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 ### Regex
 
 - **Alter Plugin Messages** now rewrites the assistant text a plugin request returns; with **Alter Outgoing Prompt** also ticked, it rewrites the text going into a plugin request. Tool call payloads are never rewritten.
+- Fixed the **Allow anyway** choice in the slow-regex warning not applying to the current message and being forgotten after toggling the script; the choice is now saved on the regex and applies immediately.
 
 ### Fixes
 

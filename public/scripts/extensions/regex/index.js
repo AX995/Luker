@@ -9,7 +9,7 @@ import { SlashCommandEnumValue, enumTypes } from '../../slash-commands/SlashComm
 import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
 import { download, equalsIgnoreCaseAndAccents, escapeHtml, getFileText, getSortableDelay, isFalseBoolean, isTrueBoolean, regexFromString, setInfoBlock, uuidv4 } from '../../utils.js';
 import { allowPresetScripts, allowScopedScripts, disallowPresetScripts, disallowScopedScripts, getCurrentPresetAPI, getCurrentPresetName, getRegexScripts, getRuntimeRegexScripts, getScriptsByType, isPresetScriptsAllowed, isScopedScriptsAllowed, regex_placement, RegexProvider, REGEX_RUNTIME_SCRIPTS_CHANGED_EVENT, runRegexScript, saveScriptsByType, SCRIPT_TYPE_UNKNOWN, SCRIPT_TYPES, substitute_find_regex } from './engine.js';
-import { REGEX_OPEN_SCRIPT_EVENT, resetRegexScriptState } from './redos-reporter.js';
+import { REGEX_ALLOW_SLOW_SCRIPT_EVENT, REGEX_OPEN_SCRIPT_EVENT, resetRegexScriptState } from './redos-reporter.js';
 import { getCurrentLocale, t } from '../../i18n.js';
 import { accountStorage } from '../../util/AccountStorage.js';
 import { getPresetManager } from '../../preset-manager.js';
@@ -941,9 +941,10 @@ async function saveRegexScript(regexScript, existingScriptIndex, scriptType, sav
         array.push(regexScript);
     }
 
-    // The script may have been auto-paused or user-allowed in a previous
-    // session-state. Editing replaces the contract, so wipe its session state
-    // and let it be evaluated freshly on the next execution.
+    // The script may have been auto-paused in a previous session-state. Saving
+    // replaces the pattern, so wipe its runtime session state and let it be
+    // evaluated freshly on the next execution. The user's persisted "Allow anyway"
+    // decision travels with the script and is intentionally left intact.
     resetRegexScriptState(regexScript.id);
 
     console.info('[Regex] saveRegexScript prepared', {
@@ -986,6 +987,38 @@ async function saveRegexScript(regexScript, existingScriptIndex, scriptType, sav
     if (debuggerPopup.length) {
         populateDebuggerRuleList(debuggerPopup.parent());
     }
+}
+
+/**
+ * Persists the user's "Allow anyway" decision on the regex script itself, so it
+ * survives enable/disable toggles, edits, and reloads until the script is deleted.
+ * Runtime (plugin-provided) scripts have no persisted storage; their decision
+ * stays in the reporter's session cache.
+ *
+ * @param {string} id Regex script id
+ * @returns {Promise<boolean>} true if a persisted script was updated
+ */
+async function persistRegexScriptAllowSlow(id) {
+    const scriptId = String(id || '');
+    if (!scriptId) {
+        return false;
+    }
+    for (const scriptType of [SCRIPT_TYPES.GLOBAL, SCRIPT_TYPES.SCOPED, SCRIPT_TYPES.PRESET]) {
+        const scripts = getScriptsByType(scriptType);
+        if (!Array.isArray(scripts)) {
+            continue;
+        }
+        const script = scripts.find(item => item && item.id === scriptId);
+        if (!script) {
+            continue;
+        }
+        if (!script.allowSlow) {
+            script.allowSlow = true;
+            await saveScriptsByType(scripts, scriptType);
+        }
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -1489,6 +1522,12 @@ async function onRegexEditorOpenClick(existingId, scriptType) {
             minDepth: parseInt(String(editorHtml.find('input[name="min_depth"]').val())),
             maxDepth: parseInt(String(editorHtml.find('input[name="max_depth"]').val())),
         };
+
+        // Preserve the persisted "Allow anyway" decision across edits; it is
+        // cleared only when the script is deleted.
+        if (existingScriptIndex !== -1 && array[existingScriptIndex]?.allowSlow) {
+            newRegexScript.allowSlow = true;
+        }
 
         console.info('[Regex] Editor save confirmed', {
             scriptType: scriptTypeLabel,
@@ -3076,6 +3115,19 @@ export async function init() {
             console.warn('[Regex] Failed to open script editor from popup', { id, error });
         }
     });
+    window.addEventListener(REGEX_ALLOW_SLOW_SCRIPT_EVENT, async (event) => {
+        const id = event?.detail?.id;
+        if (!id) return;
+        try {
+            await persistRegexScriptAllowSlow(String(id));
+        } catch (error) {
+            console.warn('[Regex] Failed to persist allow-slow decision', { id, error });
+        }
+        // Re-render the chat so the script that was auto-paused applies to the
+        // current message right away instead of only on the next generation.
+        void requestRegexChatReload();
+    });
+
     await refreshRegexEditorUi();
     // @ts-ignore
     $('#saved_regex_scripts').sortable('enable');

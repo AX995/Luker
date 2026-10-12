@@ -20,9 +20,10 @@ const pausedScripts = new Set();
 const popupShownScripts = new Set();
 
 /**
- * Script ids the user has explicitly opted into running slowly.
- * Once added, the script is never auto-paused and the popup never re-fires for it,
- * even if subsequent executions exceed the hard threshold.
+ * Session cache of script ids the user has explicitly opted into running slowly.
+ * The authoritative decision is persisted on the script itself (`allowSlow`); this
+ * set keeps the decision effective immediately, before the persistence round-trip
+ * completes, and covers runtime scripts that have no persisted storage.
  *
  * @type {Set<string>}
  */
@@ -50,6 +51,14 @@ let popupQueueProcessing = false;
  * to the regex editor for the given script id.
  */
 export const REGEX_OPEN_SCRIPT_EVENT = 'luker:regex:open-script';
+
+/**
+ * Event dispatched when the user clicks "Allow anyway" inside the slow-script popup.
+ * The regex extension's `index.js` listens for this on `window`, persists the
+ * decision on the regex script itself, and re-renders the chat so the script
+ * applies to the current message immediately.
+ */
+export const REGEX_ALLOW_SLOW_SCRIPT_EVENT = 'luker:regex:allow-slow-script';
 
 /**
  * @param {string|null|undefined} scriptId
@@ -80,9 +89,11 @@ export function unpauseRegexScript(scriptId) {
 
 /**
  * Clears all session state for the given script id: pause, popup-shown flag,
- * user-accepted-slow flag, and stats. Call this when a script is edited and
+ * user-accepted-slow cache, and stats. Call this when a script is edited and
  * saved, since the stored pattern may have changed and the previous evaluation
- * no longer applies.
+ * no longer applies. The persisted `allowSlow` decision lives on the script
+ * itself and is intentionally not touched here; it is cleared only when the
+ * script is deleted.
  *
  * @param {string|null|undefined} scriptId
  * @returns {void}
@@ -128,7 +139,7 @@ export function recordRegexExecution(script, elapsedMs) {
     if (script.findRegex) entry.pattern = String(script.findRegex);
 
     if (elapsedMs >= REGEX_HARD_THRESHOLD_MS && !pausedScripts.has(id)) {
-        if (userAllowedSlowScripts.has(id)) {
+        if (script.allowSlow || userAllowedSlowScripts.has(id)) {
             // The user has explicitly accepted that this script is slow. Track
             // stats but do not auto-pause and do not surface a popup.
             return;
@@ -212,11 +223,21 @@ async function showRegexSlowPopup(scriptId) {
     });
 
     if (result === POPUP_RESULT.CUSTOM1) {
-        // The user explicitly accepted the slow execution. From now on, do not
-        // auto-pause this script and do not surface another popup for it.
+        // The user explicitly accepted the slow execution. Cache the decision for
+        // this session and ask the regex extension to persist it on the script
+        // itself and re-render the chat so it applies right away.
         userAllowedSlowScripts.add(scriptId);
         unpauseRegexScript(scriptId);
         console.info('[Regex] Script re-enabled by user (will not auto-pause again)', { id: scriptId, name: displayName });
+        setTimeout(() => {
+            try {
+                window.dispatchEvent(new CustomEvent(REGEX_ALLOW_SLOW_SCRIPT_EVENT, {
+                    detail: { id: scriptId },
+                }));
+            } catch (error) {
+                console.warn('[Regex] Failed to dispatch allow-slow event', { id: scriptId, error });
+            }
+        }, 0);
     } else if (result === POPUP_RESULT.CUSTOM2) {
         // Defer to next tick so the current popup fully closes before the editor opens
         setTimeout(() => {
