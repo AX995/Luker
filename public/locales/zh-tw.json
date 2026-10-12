@@ -2839,6 +2839,7 @@
     "Background keep-alive on mobile": "行動端後台保活",
     "Keep AI requests running when the app or browser is in the background on mobile devices.": "當應用程式或瀏覽器在行動裝置後台時，保持 AI 請求繼續執行。",
     "Background keep-alive could not be primed. Try unchecking and re-checking the option.": "後台保活預熱失敗，請取消勾選後重新勾選。",
+    "Background keep-alive could not be enabled. Try again from a tap on the page.": "後台保活啟用失敗，請在頁面上點擊後重試。",
     "Background keep-alive": "後台保活",
     "The current WebView won't be inspected until you fully restart the app. Turning it on now only covers renderers created after this point.": "目前 WebView 在你完全重啟 app 之前不會被觀察到。現在打開只對之後建立的渲染程序生效。",
     "Debug recording enabled": "偵錯錄製已開啟",
