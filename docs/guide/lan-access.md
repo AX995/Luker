@@ -121,9 +121,7 @@ A LAN is not automatically trusted, especially on shared or public Wi-Fi. Before
 
 ## iOS
 
-There is no iOS app. Luker is licensed AGPL-3.0, and the App Store terms conflict with the license's requirement that users can freely copy, modify, and redistribute the software ([legal barrier to application stores](https://en.wikipedia.org/wiki/GNU_General_Public_License#Legal_barrier_to_application_stores)), so the app cannot be published there. Android and HarmonyOS allow installing an app directly, which is why those platforms have one.
-
-iPhone and iPad users reach Luker through the browser: run the server on a computer on the same network, enable LAN access as above, and open the host address in Safari.
+There is no iOS app, so iPhone and iPad use the browser over the network. See [iOS](/guide/ios) for the reason and the setup steps.
 
 ## Troubleshooting
 

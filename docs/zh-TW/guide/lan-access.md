@@ -121,9 +121,7 @@ ports:
 
 ## iOS
 
-iOS 沒有 app。Luker 以 AGPL-3.0 授權，App Store 的條款與該授權要求的自由複製、修改和再散布相衝突，構成[應用程式商店的法律障礙](https://en.wikipedia.org/wiki/GNU_General_Public_License#Legal_barrier_to_application_stores)，因此無法上架。Android 與 HarmonyOS 允許直接安裝應用程式，所以這兩個平台有 app。
-
-iPhone 與 iPad 使用者透過瀏覽器存取 Luker：在一台同網電腦上執行服務，依上文開啟區域網路存取，然後在 Safari 中開啟主機地址。
+iOS 沒有 app，iPhone 與 iPad 透過瀏覽器經網路存取。原因與設定步驟見 [iOS](/zh-TW/guide/ios)。
 
 ## 疑難排解
 
