@@ -1887,6 +1887,7 @@ let settingsSnapshotCache = null;
 let settingsSaveInFlight = null;
 let settingsSaveQueued = false;
 let settingsSaveQueuedOptions = null;
+let settingsSaveBlockedForImport = false;
 let forceAsyncDiffForNextSettingsSave = false;
 let forceAsyncDiffForNextSettingsSaveTimer = null;
 let fullSettingsLoaded = false;
@@ -15414,8 +15415,20 @@ export function setUserName(value, { toastPersonaNameChange = true } = {}) {
 
 async function doOnboarding(avatarId) {
     const template = $('#onboarding_template .onboarding').clone();
-    bindOnboardingImportActions(template);
-    let userName = await callGenericPopup(template, POPUP_TYPE.INPUT, currentUser?.name || name1, { wider: true, cancelButton: false });
+    const importState = { busy: false, dataImported: false };
+    bindOnboardingImportActions(template, importState);
+    let userName = await callGenericPopup(template, POPUP_TYPE.INPUT, currentUser?.name || name1, {
+        wider: true,
+        cancelButton: false,
+        onClosing: () => !importState.busy,
+    });
+
+    if (importState.dataImported) {
+        // The archive replaced settings on disk. Reload before any browser
+        // defaults or onboarding persona changes can be saved over them.
+        location.reload();
+        return false;
+    }
 
     if (userName) {
         userName = String(userName).replace('\n', ' ');
@@ -15427,6 +15440,7 @@ async function doOnboarding(avatarId) {
             position: persona_description_positions.IN_PROMPT,
         };
     }
+    return true;
 }
 
 async function uploadOnboardingImport(url, file, { onProgress = null } = {}) {
@@ -15444,7 +15458,7 @@ async function uploadOnboardingImport(url, file, { onProgress = null } = {}) {
     return data;
 }
 
-function bindOnboardingImportActions(template) {
+function bindOnboardingImportActions(template, importState) {
     const status = template.find('.onboardingMigrationStatus');
     const dataButton = template.find('.onboardingImportDataZipButton');
     const configButton = template.find('.onboardingImportConfigButton');
@@ -15459,6 +15473,7 @@ function bindOnboardingImportActions(template) {
     };
 
     const setBusy = (busy) => {
+        importState.busy = busy;
         dataButton.toggleClass('disabled', Boolean(busy));
         if (!serverLevelLocked) {
             configButton.toggleClass('disabled', Boolean(busy));
@@ -15466,9 +15481,9 @@ function bindOnboardingImportActions(template) {
         }
     };
 
-    const runImport = async (label, input, endpoint, successTextFactory) => {
+    const runImport = async (label, input, endpoint, successTextFactory, importsData = false) => {
         const file = input[0] instanceof HTMLInputElement ? input[0].files?.[0] : null;
-        if (!file) {
+        if (!file || importState.busy) {
             return;
         }
 
@@ -15480,6 +15495,13 @@ function bindOnboardingImportActions(template) {
         setBusy(true);
         setStatus(formatUploadingStatus(0, file.size));
         try {
+            if (importsData) {
+                // Drain an existing write before extraction starts and prevent
+                // queued or boot-time saves from writing stale browser state.
+                settingsSaveBlockedForImport = true;
+                cancelDebounce(saveSettingsDebounced);
+                await settingsSaveInFlight;
+            }
             const result = await uploadOnboardingImport(endpoint, file, {
                 onProgress: ({ loaded, total, done }) => {
                     if (done) {
@@ -15489,6 +15511,9 @@ function bindOnboardingImportActions(template) {
                     setStatus(formatUploadingStatus(loaded, total));
                 },
             });
+            if (importsData) {
+                importState.dataImported = true;
+            }
             const message = typeof successTextFactory === 'function' ? successTextFactory(result) : t`Import completed`;
             setStatus(message);
             toastr.success(message, t`Import completed`);
@@ -15497,6 +15522,9 @@ function bindOnboardingImportActions(template) {
             setStatus(message);
             toastr.error(message, t`Import failed`);
         } finally {
+            if (importsData && !importState.dataImported) {
+                settingsSaveBlockedForImport = false;
+            }
             if (input[0] instanceof HTMLInputElement) {
                 input[0].value = '';
             }
@@ -15515,6 +15543,7 @@ function bindOnboardingImportActions(template) {
         dataInput,
         '/api/users/import/data-zip',
         (result) => t`Data ZIP imported: restored ${result?.restoredCount ?? 0}, skipped ${result?.skippedCount ?? 0}, rejected ${result?.rejectedCount ?? 0}.`,
+        true,
     ));
 
     const canImportServerLevel = isAdmin();
@@ -15871,7 +15900,10 @@ export async function getSettings(options = {}) {
                 await hideLoader();
             }
             onboardingTask = doOnboarding(user_avatar)
-                .then(async () => {
+                .then(async (completed) => {
+                    if (!completed) {
+                        return;
+                    }
                     firstRun = false;
                     try {
                         await saveSettings(0, { directSave: true });
@@ -16063,6 +16095,9 @@ async function saveSettingsInternal(loopCounter = 0, options = {}) {
 }
 
 export async function saveSettings(loopCounter = 0, options = null) {
+    if (settingsSaveBlockedForImport) {
+        return;
+    }
     const normalizedOptions = normalizeSettingsSaveOptions(options);
 
     if (settingsSaveInFlight) {
