@@ -276,6 +276,34 @@ describe.each(ENDPOINT_HARNESSES)('backup/restore roundtrip on $name', ({ mode }
         expect(afterProbe.stats?.totalChats).toBe(7);
     });
 
+    test('imports a ZIP with large settings without stalling', async () => {
+        // Incompressible content spans multiple ZIP read buffers and exercises
+        // backpressure, unlike tiny settings fixtures or repeated padding.
+        const settings = { username: 'roundtrip', custom: randomBytes(256 * 1024).toString('base64') };
+        const zipPath = path.join(harness.dataRoot, 'large-settings.zip');
+        await new Promise((resolve, reject) => {
+            const out = fs.createWriteStream(zipPath);
+            const archive = archiver('zip');
+            archive.on('error', reject);
+            out.on('error', reject);
+            out.on('close', resolve);
+            archive.pipe(out);
+            archive.append(JSON.stringify(settings), { name: 'settings.json' });
+            archive.finalize();
+        });
+        await getSettingsRepo().save(harness.handle, { username: 'fresh' });
+
+        const restoreRes = await request(harness.app)
+            .post('/api/users/import/data-zip')
+            .attach('avatar', zipPath)
+            // Fail and close the HTTP socket before Jest's 15s test deadline
+            // if extraction stalls.
+            .timeout({ response: 10000 });
+        expect(restoreRes.status).toBe(200);
+        expect(restoreRes.body.failedCount).toBe(0);
+        expect(await getSettingsRepo().get(harness.handle)).toEqual(settings);
+    });
+
     test('REGRESSION: restore demands scratch creds when backup engine is foreign db', async () => {
         if (mode === 'fs') return; // fs has no engine_meta-driven validation path
 

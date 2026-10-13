@@ -33,6 +33,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - LAN Sync failures now appear as a toast and are written to the debug log.
 - LAN Sync pairing links now embed a detected LAN address instead of a localhost address, and the generating device can pick another address.
 - LAN Sync now reports the underlying network error when the other device is unreachable.
+- Fixed ZIP restores stalling while extracting large files.
 
 ### HarmonyOS App
 
