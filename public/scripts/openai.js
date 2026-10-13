@@ -3883,15 +3883,14 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.siliconflow_endpoint = settings.siliconflow_endpoint || SILICONFLOW_ENDPOINT.GLOBAL;
     }
 
-    // https://platform.moonshot.ai/docs/api/chat#public-service-address
+    // https://platform.kimi.ai/docs/api/models-overview
+    // Active Kimi models fix sampling server-side; passing temperature, top_p,
+    // presence_penalty or frequency_penalty returns an error, so drop them.
     if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
-        // Kimi K2.5 uses constrained parameters and rejects some OpenAI-style controls.
-        if (/kimi-k2.5/.test(model)) {
-            delete generate_data.temperature;
-            delete generate_data.top_p;
-            delete generate_data.frequency_penalty;
-            delete generate_data.presence_penalty;
-        }
+        delete generate_data.temperature;
+        delete generate_data.top_p;
+        delete generate_data.frequency_penalty;
+        delete generate_data.presence_penalty;
     }
 
     if (settings.chat_completion_source === chat_completion_sources.MINIMAX) {
@@ -3918,28 +3917,6 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.min_p = Number(settings.min_p_openai);
         generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
         generate_data.top_a = Number(settings.top_a_openai);
-    }
-
-    // https://platform.moonshot.ai/docs/api/chat#public-service-address
-    if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
-        // >Kimi API is fully compatible with OpenAI's API format
-        if (/kimi-k2.5/.test(model)) {
-            delete generate_data.temperature;
-            delete generate_data.top_p;
-            delete generate_data.frequency_penalty;
-            delete generate_data.presence_penalty;
-        }
-    }
-
-    // https://platform.moonshot.ai/docs/api/chat#public-service-address
-    if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
-        // >Kimi API is fully compatible with OpenAI's API format
-        if (/kimi-k2.5/.test(model)) {
-            delete generate_data.temperature;
-            delete generate_data.top_p;
-            delete generate_data.frequency_penalty;
-            delete generate_data.presence_penalty;
-        }
     }
 
     if (settings.chat_completion_source === chat_completion_sources.MOONSHOT) {
