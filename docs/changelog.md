@@ -6,7 +6,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 
 ### Server Plugins
 
-- Added on-demand installation of server plugin npm dependencies on desktop and Android, with an install prompt after install or update and an **Install dependencies** button on plugin rows with missing dependencies, plus a new [Server Plugins guide](/guide/server-plugins).
+- Added on-demand installation of server plugin npm dependencies, including optional dependencies, on desktop and Android, with an install prompt after install or update and an **Install dependencies** button on plugin rows with missing dependencies, plus a new [Server Plugins guide](/guide/server-plugins).
 
 ### Search Tools
 

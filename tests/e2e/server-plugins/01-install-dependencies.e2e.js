@@ -26,6 +26,7 @@ let server;
 let scratchRoot;
 let pluginsDir;
 let bareRepo;
+let copiedPluginDir;
 
 /**
  * Build a local bare git repository that serves as the plugin source.
@@ -64,10 +65,10 @@ function createExamplePluginRepo(baseDir) {
         dependencies: { 'tiny-dep': `file:${dep}` },
     }, null, 2));
     fs.writeFileSync(path.join(work, 'index.mjs'), [
-        "import tinyDep from 'tiny-dep';",
+        'import tinyDep from \'tiny-dep\';',
         'export const info = { id: "example-plugin", name: "Example Plugin", description: "e2e fixture" };',
         'export async function init(router) {',
-        "    router.get('/ping', (req, res) => res.json({ ok: true, value: tinyDep.value }));",
+        '    router.get(\'/ping\', (req, res) => res.json({ ok: true, value: tinyDep.value }));',
         '}',
         '',
     ].join('\n'));
@@ -89,6 +90,20 @@ test.beforeAll(async () => {
     pluginsDir = path.join(scratchRoot, 'plugins');
     fs.mkdirSync(pluginsDir, { recursive: true });
     bareRepo = createExamplePluginRepo(path.join(scratchRoot, 'repo'));
+    // Reproduce copying a source directory rather than installing through git.
+    copiedPluginDir = path.join(pluginsDir, 'copied-plugin');
+    fs.cpSync(path.join(scratchRoot, 'repo', 'example-plugin-work'), copiedPluginDir, {
+        recursive: true,
+        filter: source => path.basename(source) !== '.git',
+    });
+    const copiedPackagePath = path.join(copiedPluginDir, 'package.json');
+    const copiedPackage = JSON.parse(fs.readFileSync(copiedPackagePath, 'utf8'));
+    copiedPackage.name = 'copied-plugin';
+    copiedPackage.optionalDependencies = copiedPackage.dependencies;
+    delete copiedPackage.dependencies;
+    fs.writeFileSync(copiedPackagePath, JSON.stringify(copiedPackage));
+    const copiedEntry = path.join(copiedPluginDir, 'index.mjs');
+    fs.writeFileSync(copiedEntry, fs.readFileSync(copiedEntry, 'utf8').replace('"example-plugin"', '"copied-plugin"'));
 
     server = await startServer({
         batchKey: 'server-plugins',
@@ -109,7 +124,7 @@ test.afterAll(async () => {
 });
 
 test.describe('Server plugins · dependency install', () => {
-    test('installs dependencies from the admin prompt and the plugin route resolves them after restart', async ({ page, request }) => {
+    test('installs dependencies from the row and admin prompt and resolves them after restart', async ({ page, request }, testInfo) => {
         await awaitMainUI(page, server.baseURL);
         await openAdminPanel(page);
 
@@ -118,6 +133,15 @@ test.describe('Server plugins · dependency install', () => {
 
         const tab = adminPopup.locator('.serverPluginsTab');
         await tab.waitFor({ state: 'visible', timeout: 10_000 });
+
+        const copiedRow = tab.locator('.serverPluginRow', { has: page.locator('.serverPluginDirectory', { hasText: 'copied-plugin' }) });
+        await expect(copiedRow.locator('.serverPluginInstallDepsButton')).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath('optional-dependencies-missing.png') });
+        await copiedRow.locator('.serverPluginInstallDepsButton').click();
+        await expect(copiedRow.locator('.serverPluginDependencyStatus'))
+            .toContainText('Dependencies installed', { timeout: 60_000 });
+        expect(fs.existsSync(path.join(copiedPluginDir, 'node_modules', 'tiny-dep', 'package.json'))).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath('optional-dependencies-installed.png') });
 
         await tab.locator('#serverPluginRepoUrlInput').fill(bareRepo);
         await tab.locator('.installServerPluginButton').click();
@@ -130,7 +154,8 @@ test.describe('Server plugins · dependency install', () => {
         await installDepsButton.click();
 
         // The row re-renders once the install round-trips.
-        await expect(tab.locator('.serverPluginDependencyStatus'))
+        const installedRow = tab.locator('.serverPluginRow', { has: page.locator('.serverPluginDirectory', { hasText: 'example-plugin' }) });
+        await expect(installedRow.locator('.serverPluginDependencyStatus'))
             .toContainText('Dependencies installed', { timeout: 60_000 });
 
         // The plugin only loads at boot, so restart before probing its route.
@@ -139,5 +164,8 @@ test.describe('Server plugins · dependency install', () => {
         const response = await request.get(`${server.baseURL}/api/plugins/example-plugin/ping`);
         expect(response.ok()).toBe(true);
         expect(await response.json()).toEqual({ ok: true, value: 42 });
+        const copiedResponse = await request.get(`${server.baseURL}/api/plugins/copied-plugin/ping`);
+        expect(copiedResponse.ok()).toBe(true);
+        expect(await copiedResponse.json()).toEqual({ ok: true, value: 42 });
     });
 });

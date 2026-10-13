@@ -54,9 +54,32 @@ describe('getPluginDependencyStatus', () => {
             hasDependencies: true, declared: ['dayjs'], missing: [], needsInstall: false,
         });
     });
+
+    test('optional-only dependencies expose the install action', () => {
+        const root = makePlugin({ optionalDependencies: { 'tiny-dep': '1.0.0' } });
+        expect(getPluginDependencyStatus(root)).toEqual({
+            hasDependencies: true, declared: ['tiny-dep'], missing: ['tiny-dep'], needsInstall: true,
+        });
+    });
+
+    test('overlapping declarations count installed optional dependencies once', () => {
+        const root = makePlugin({
+            dependencies: { required: '1.0.0', shared: '1.0.0' },
+            optionalDependencies: { shared: '2.0.0', optional: '1.0.0' },
+            devDependencies: { development: '1.0.0' },
+        });
+        for (const name of ['optional', 'shared']) {
+            const installed = path.join(root, 'node_modules', name);
+            fs.mkdirSync(installed, { recursive: true });
+            fs.writeFileSync(path.join(installed, 'package.json'), '{}');
+        }
+        expect(getPluginDependencyStatus(root)).toEqual({
+            hasDependencies: true, declared: ['optional', 'required', 'shared'], missing: ['required'], needsInstall: true,
+        });
+    });
 });
 
-function makeInstalledFixture() {
+function makeInstalledFixture(dependencyField = 'dependencies') {
     const pluginsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-install-'));
     roots.push(pluginsPath);
     const dep = path.join(pluginsPath, 'tiny-dep');
@@ -68,13 +91,24 @@ function makeInstalledFixture() {
     fs.mkdirSync(plugin, { recursive: true });
     fs.writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({
         name: 'demo-plugin', version: '1.0.0', type: 'commonjs', main: 'index.js',
-        dependencies: { 'tiny-dep': `file:${dep}` },
+        [dependencyField]: { 'tiny-dep': `file:${dep}` },
     }));
     fs.writeFileSync(path.join(plugin, 'index.js'), 'module.exports = require("tiny-dep");');
     return pluginsPath;
 }
 
 describe('installPluginDependencies', () => {
+    test.each([{}, { forceManager: 'arborist' }])('installs optional-only dependencies with %j', async (options) => {
+        const pluginsPath = makeInstalledFixture('optionalDependencies');
+        const result = await installPluginDependencies(pluginsPath, 'demo-plugin', options);
+        expect(result.installed).toBe(true);
+        expect(result.manager).toBe(options.forceManager || 'npm');
+        expect(getPluginDependencyStatus(result.path)).toEqual({
+            hasDependencies: true, declared: ['tiny-dep'], missing: [], needsInstall: false,
+        });
+        expect(require(path.join(result.path, 'index.js')).value).toBe(42);
+    }, 120000);
+
     test('installs declared dependencies and reports the manager', async () => {
         const pluginsPath = makeInstalledFixture();
         const result = await installPluginDependencies(pluginsPath, 'demo-plugin');

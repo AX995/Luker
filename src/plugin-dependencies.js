@@ -20,7 +20,10 @@ export function getPluginDependencyStatus(pluginPath) {
         }
 
         const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-        const declared = Object.keys(packageJson?.dependencies || {}).sort();
+        const declared = [...new Set([
+            ...Object.keys(packageJson?.dependencies || {}),
+            ...Object.keys(packageJson?.optionalDependencies || {}),
+        ])].sort();
         if (declared.length === 0) {
             return empty;
         }
