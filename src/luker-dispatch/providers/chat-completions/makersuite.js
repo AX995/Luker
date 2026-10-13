@@ -190,10 +190,12 @@ export async function dispatchMakerSuite(ctx) {
             'gemini-3.1-flash-image',
         ];
 
-        const isThinkingConfigModel = m => (modelIdMatchesFamily(m, /^gemini-2.5-(flash|pro)/) && !/-image(-preview)?$/.test(m)) || (modelIdMatchesFamily(m, /^gemini-3[.\d]*-(flash|pro)/));
-        const isImageSizeModel = m => modelIdMatchesFamily(m, /^gemini-3/);
+        const isThinkingConfigModel = m => (modelIdMatchesFamily(m, /^gemini-2.5-(flash|pro)/) && !/-image(-preview)?$/.test(m)) || (modelIdMatchesFamily(m, /^gemini-3[.\d]*-(flash|pro)/)) || modelIdMatchesFamily(m, /^gemini-4/);
+        const isImageSizeModel = m => modelIdMatchesFamily(m, /^gemini-[34]/);
         // https://ai.google.dev/gemini-api/docs/latest-model#api-changes-and-parameter-updates
-        const noSamplingModel = modelIdMatchesFamily(model, /^gemini-3\.[678]-flash|^gemini-3\.5-flash-lite/);
+        // Gemini 4 inherits the Gemini 3.6+ shape: sampling parameters are
+        // deprecated for "all future Gemini model releases".
+        const noSamplingModel = modelIdMatchesFamily(model, /^gemini-3\.[678]-flash|^gemini-3\.5-flash-lite/) || modelIdMatchesFamily(model, /^gemini-4/);
 
         const noSearchModels = [
             'gemini-2.0-flash-lite',
@@ -285,11 +287,13 @@ export async function dispatchMakerSuite(ctx) {
             const thinkingConfig = { includeThoughts: includeReasoning };
 
             if (reasoningToken === 'off') {
-                const supportsOff = modelIdMatchesFamily(model, /^gemini-(2\.5-(flash|flash-lite)|3[.\d]*-(flash|pro))/) && !modelIdMatchesFamily(model, /^gemini-2\.5-pro/);
+                const supportsOff = (modelIdMatchesFamily(model, /^gemini-(2\.5-(flash|flash-lite)|3[.\d]*-(flash|pro))/) && !modelIdMatchesFamily(model, /^gemini-2\.5-pro/))
+                    || modelIdMatchesFamily(model, /^gemini-4/);
                 if (supportsOff) {
-                    if (modelIdMatchesFamily(model, /^gemini-3/)) {
+                    if (modelIdMatchesFamily(model, /^gemini-3/) || modelIdMatchesFamily(model, /^gemini-4/)) {
                         const lacksMinimalThinking = modelIdMatchesFamily(model, /^gemini-3\.7-flash/)
-                            || modelIdMatchesFamily(model, /^gemini-3[.\d]*-pro/);
+                            || modelIdMatchesFamily(model, /^gemini-3[.\d]*-pro/)
+                            || modelIdMatchesFamily(model, /^gemini-4/);
                         thinkingConfig.thinkingLevel = lacksMinimalThinking ? 'low' : 'minimal';
                     } else {
                         thinkingConfig.thinkingBudget = 0;

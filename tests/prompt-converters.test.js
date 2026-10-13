@@ -242,6 +242,20 @@ describe('calculateGoogleBudgetTokens', () => {
         test('max returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'max', 'gemini-3.0-pro')).toBe('high'));
     });
 
+    describe('gemini-4', () => {
+        test('auto returns null', () => expect(mod.calculateGoogleBudgetTokens(8192, 'auto', 'gemini-4-argon')).toBeNull());
+
+        test('min degrades to low (no minimal support)', () => expect(mod.calculateGoogleBudgetTokens(8192, 'min', 'gemini-4-argon')).toBe('low'));
+
+        test('low returns low', () => expect(mod.calculateGoogleBudgetTokens(8192, 'low', 'gemini-4-argon')).toBe('low'));
+
+        test('medium returns medium', () => expect(mod.calculateGoogleBudgetTokens(8192, 'medium', 'gemini-4-argon')).toBe('medium'));
+
+        test('high returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'high', 'gemini-4-argon')).toBe('high'));
+
+        test('max returns high', () => expect(mod.calculateGoogleBudgetTokens(8192, 'max', 'gemini-4-argon')).toBe('high'));
+    });
+
     describe('flash (non-gemini-3)', () => {
         test('auto returns null', () => {
             expect(mod.calculateGoogleBudgetTokens(8192, 'auto', 'gemini-2.0-flash')).toBeNull();
@@ -1533,7 +1547,7 @@ describe('convertGooglePrompt', () => {
         expect(result.contents[0].parts[0].text).toBe('A\n\nB');
     });
 
-    for (const model of ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']) {
+    for (const model of ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-4-argon']) {
         test(`converts a trailing prefill to a user turn on ${model}`, () => {
             const messages = [
                 { role: 'user', content: 'Hi' },

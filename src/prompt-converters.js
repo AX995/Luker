@@ -531,7 +531,7 @@ export function convertGooglePrompt(messages, model, useSysPrompt, names) {
     const toolNameMap = {};
 
     // https://ai.google.dev/gemini-api/docs/latest-model#prefilled-model-turn-validation
-    const noPrefillModel = /gemini-3\.[67]-flash|gemini-3\.5-flash-lite/.test(model);
+    const noPrefillModel = /gemini-3\.[67]-flash|gemini-3\.5-flash-lite|gemini-4/.test(model);
 
     const contents = [];
     messages.forEach((message, index) => {
@@ -603,7 +603,7 @@ export function convertGooglePrompt(messages, model, useSysPrompt, names) {
                     };
 
                     // https://ai.google.dev/gemini-api/docs/gemini-3#media_resolution
-                    if (/gemini-3/.test(model) && mediaResolution) {
+                    if ((/gemini-3/.test(model) || /gemini-4/.test(model)) && mediaResolution) {
                         part.mediaResolution = {
                             level: mediaResolution,
                         };
@@ -651,14 +651,14 @@ export function convertGooglePrompt(messages, model, useSysPrompt, names) {
 
         // https://ai.google.dev/gemini-api/docs/gemini-3#migrating_from_other_models
         // Inject stored thought signatures, or fall back to bypass magic for Gemini 3
-        if (/gemini-3/.test(model) || /gemini-2\.5/.test(model)) {
+        if (/gemini-3/.test(model) || /gemini-4/.test(model) || /gemini-2\.5/.test(model)) {
             const skipSignatureMagic = 'skip_thought_signature_validator';
             const textSignature = message.signature;
 
             parts.forEach((part) => {
                 if (enableThoughtSignatures && textSignature && typeof part.text === 'string') {
                     part.thoughtSignature = textSignature;
-                } else if (/gemini-3/.test(model)) {
+                } else if (/gemini-3/.test(model) || /gemini-4/.test(model)) {
                     // Gemini 3: Fall back to bypass magic for function calls (mandatory) and images
                     if (part.functionCall && !part.thoughtSignature) {
                         part.thoughtSignature = skipSignatureMagic;
@@ -1352,7 +1352,8 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
 
     function getGemini3FlashBudget() {
         // https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash
-        const noMinimalThinking = /gemini-3\.7-flash/.test(model);
+        // Gemini 4 (Argon) drops `minimal` like Gemini 3.7 Flash and the Pro tier.
+        const noMinimalThinking = /gemini-3\.7-flash/.test(model) || /gemini-4/.test(model);
         switch (reasoningEffort) {
             case REASONING_EFFORT.auto:
                 return null;
@@ -1398,7 +1399,7 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
         return getGemini3ProBudget();
     }
 
-    if (/gemini-3[.\d]*-flash/.test(model)) {
+    if (/gemini-3[.\d]*-flash/.test(model) || /gemini-4/.test(model)) {
         return getGemini3FlashBudget();
     }
 

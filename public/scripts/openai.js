@@ -7877,6 +7877,7 @@ function getGeminiMaxContext(model, isUnlocked) {
         [/gemini-3\.1-flash-image/, max_128k],
         [/gemini-3-pro-image/, max_64k],
         [/gemini-(?:3[.\d]*|2\.(?:5|0))-(pro|flash)/, max_1mil],
+        [/gemini-4/, max_1mil],
         [/(gemini-exp|learnlm-2\.0-flash|gemini-robotics)/, max_1mil],
         [/gemma-3-27b-it/, max_128k],
         [/gemma-3n-e4b-it/, max_8k],
@@ -9009,6 +9010,7 @@ export function isImageInliningSupported() {
         'gemini-2.0',
         'gemini-2.5',
         'gemini-3',
+        'gemini-4',
         'gemini-exp-1206',
         'learnlm',
         'gemini-robotics',
@@ -9127,6 +9129,7 @@ export function isVideoInliningSupported() {
         'gemini-2.5',
         'gemini-exp-1206',
         'gemini-3',
+        'gemini-4',
         'gemma-4',
         // Z.AI (GLM)
         'glm-4.5v',

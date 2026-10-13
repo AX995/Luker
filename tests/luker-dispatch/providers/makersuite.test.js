@@ -489,6 +489,31 @@ describe('dispatchMakerSuite', () => {
             await dispatchMakerSuite(ctx);
             expect(thinkingConfigFromCtx(ctx).thinkingLevel).toBe('high');
         });
+
+        test('gemini-4-argon + high → thinkingConfig carries includeThoughts and thinkingLevel === high', async () => {
+            const ctx = fakeCtx({ body: { model: 'gemini-4-argon', reasoning_effort: 'high', include_reasoning: true } });
+            await dispatchMakerSuite(ctx);
+            const cfg = thinkingConfigFromCtx(ctx);
+            expect(cfg.includeThoughts).toBe(true);
+            expect(cfg.thinkingLevel).toBe('high');
+        });
+
+        test('gemini-4-argon + off → thinkingLevel === low (no minimal support)', async () => {
+            const ctx = fakeCtx({ body: { model: 'gemini-4-argon', reasoning_effort: 'off' } });
+            await dispatchMakerSuite(ctx);
+            expect(thinkingConfigFromCtx(ctx).thinkingLevel).toBe('low');
+        });
+
+        test('gemini-4-argon drops deprecated sampling parameters', async () => {
+            const ctx = fakeCtx({ body: { model: 'gemini-4-argon', reasoning_effort: 'medium', top_k: 40 } });
+            await dispatchMakerSuite(ctx);
+            const [, init] = ctx.fetch.mock.calls[0];
+            const gc = JSON.parse(init.body).generationConfig;
+            expect('temperature' in gc).toBe(false);
+            expect('topP' in gc).toBe(false);
+            expect('topK' in gc).toBe(false);
+            expect('candidateCount' in gc).toBe(false);
+        });
     });
 
     test('VERTEXAI reverse-proxy branch: /v1/publishers/google/models URL, Authorization header, no key= param', async () => {
