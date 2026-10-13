@@ -1,6 +1,7 @@
 import { webview } from '@kit.ArkWeb';
 import { common } from '@kit.AbilityKit';
 import { picker, fileIo } from '@kit.CoreFileKit';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import http from '@ohos.net.http';
 import { getBackendStatus } from 'libnode_ctl.so';
@@ -13,6 +14,7 @@ import { exportTo } from '../crash/DiagnosticsExporter';
 import { writeArkWebExit } from '../crash/CrashCapture';
 import { LastExit } from '../crash/LastExit';
 import { KeepAliveManager, LukerHarmonyBridge } from '../KeepAliveManager';
+import { FileSelectionPlan, MediaKind, planFileSelection } from '../FileSelectionPlanner';
 import { BusinessError } from '@kit.BasicServicesKit';
 
 const TAG: string = 'luker.Index';
@@ -290,6 +292,54 @@ struct Index {
     }
   }
 
+  /**
+   * Answers a page file-upload request. ArkWeb keeps the file input pending
+   * until the result is handed back, so every path, including a cancelled or
+   * failed picker, has to call handleFileList.
+   */
+  private async resolveFileSelection(event: OnShowFileSelectorEvent): Promise<void> {
+    let selected: Array<string> = [];
+    try {
+      const multiple: boolean =
+        event.fileSelector.getMode() === FileSelectorMode.FileOpenMultipleMode;
+      const plan: FileSelectionPlan = planFileSelection(
+        event.fileSelector.getAcceptType(),
+        event.fileSelector.getMimeTypes(),
+        multiple,
+      );
+      selected = plan.useMediaPicker
+        ? await this.pickMedia(plan)
+        : await this.pickDocument(plan);
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'file selection failed: %{public}s', JSON.stringify(e));
+    }
+    event.result.handleFileList(selected);
+  }
+
+  private async pickMedia(plan: FileSelectionPlan): Promise<Array<string>> {
+    const options = new photoAccessHelper.PhotoSelectOptions();
+    options.MIMEType = mediaMimeType(plan.mediaKind);
+    if (plan.maxSelectNumber > 0) {
+      options.maxSelectNumber = plan.maxSelectNumber;
+    }
+    const mediaPicker = new photoAccessHelper.PhotoViewPicker();
+    const result: photoAccessHelper.PhotoSelectResult = await mediaPicker.select(options);
+    return result.photoUris;
+  }
+
+  private async pickDocument(plan: FileSelectionPlan): Promise<Array<string>> {
+    const options = new picker.DocumentSelectOptions();
+    if (plan.fileSuffixFilters.length > 0) {
+      options.fileSuffixFilters = plan.fileSuffixFilters;
+    }
+    if (plan.maxSelectNumber > 0) {
+      options.maxSelectNumber = plan.maxSelectNumber;
+    }
+    const context = getContext(this) as common.UIAbilityContext;
+    const documentPicker = new picker.DocumentViewPicker(context);
+    return await documentPicker.select(options);
+  }
+
   build() {
     Stack() {
       if (this.serverReady) {
@@ -324,6 +374,12 @@ struct Index {
           .onFullScreenExit(() => {
             this.fsHandler = null;
           })
+          .onShowFileSelector((event) => {
+            if (event) {
+              this.resolveFileSelection(event);
+            }
+            return true;
+          })
       } else {
         Column({ space: 16 }) {
           Text('Luker').fontSize(24).fontWeight(FontWeight.Bold).fontColor('#cfd6e4')
@@ -342,6 +398,17 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+  }
+}
+
+function mediaMimeType(kind: MediaKind): photoAccessHelper.PhotoViewMIMETypes {
+  switch (kind) {
+    case MediaKind.Image:
+      return photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+    case MediaKind.Video:
+      return photoAccessHelper.PhotoViewMIMETypes.VIDEO_TYPE;
+    default:
+      return photoAccessHelper.PhotoViewMIMETypes.IMAGE_VIDEO_TYPE;
   }
 }
 
