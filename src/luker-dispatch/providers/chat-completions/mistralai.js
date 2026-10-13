@@ -59,6 +59,8 @@ export async function dispatchMistralAI(ctx) {
             'messages': messages,
             'temperature': body.temperature,
             'top_p': body.top_p,
+            'top_k': body.top_k,
+            'n': body.n,
             'frequency_penalty': body.frequency_penalty,
             'presence_penalty': body.presence_penalty,
             'max_tokens': body.max_tokens,

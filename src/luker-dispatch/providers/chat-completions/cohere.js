@@ -74,7 +74,19 @@ export async function dispatchCohere(ctx) {
             presence_penalty: body.presence_penalty,
             documents: [],
             tools: tools,
+            logprobs: body.logprobs ? true : undefined,
         };
+
+        // Cohere expresses tool_choice as REQUIRED / NONE; omitting it lets the
+        // model decide. A named-function request is mapped to REQUIRED, the
+        // closest available behavior (Cohere cannot force one specific tool).
+        if (tools.length > 0) {
+            if (body.tool_choice === 'none') {
+                requestBody.tool_choice = 'NONE';
+            } else if (body.tool_choice === 'required' || (body.tool_choice && typeof body.tool_choice === 'object')) {
+                requestBody.tool_choice = 'REQUIRED';
+            }
+        }
 
         const canDoSafetyMode = String(body.model).endsWith('08-2024');
         if (canDoSafetyMode) {

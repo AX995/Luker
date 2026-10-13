@@ -158,7 +158,7 @@ export async function dispatchClaude(ctx) {
         const useVerbosity = modelIdMatchesFamily(body.model, /^claude-(opus-4-5|opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview|opus-5|sonnet-5)/);
         const noPrefillModel = modelIdMatchesFamily(body.model, /^claude-(opus-4-6|sonnet-4-6|opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview|opus-5|sonnet-5)/);
         const isAdaptiveModel = modelIdMatchesFamily(body.model, /^claude-(haiku-5|opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview|opus-5|sonnet-5)/) || (enableAdaptiveThinking && modelIdMatchesFamily(body.model, /^claude-(opus-4-6|sonnet-4-6)/));
-        const noSamplingModel = modelIdMatchesFamily(body.model, /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview|opus-5|sonnet-5)/);
+        const noSamplingModel = modelIdMatchesFamily(body.model, /^claude-(opus-4-7|opus-4-8|fable-5|mythos-5|mythos-preview|opus-5|sonnet-5|haiku-5-5)/);
         let fixThinkingPrefill = false;
 
         const stopSequences = [];

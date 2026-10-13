@@ -337,17 +337,50 @@ export function bootstrapResponsesBackend({ dataRoot, handle = 'default-user', b
  * ('api_key_moonshot'), unlike the OpenAI defaults.
  */
 export function bootstrapMoonshotBackend({ dataRoot, handle = 'default-user', baseURL, model = 'kimi-e2e' }) {
+    return bootstrapMockChatBackend({
+        dataRoot, handle, baseURL, source: 'moonshot', model,
+        modelKey: 'moonshot_model', secretKey: 'api_key_moonshot', secretValue: 'test-moonshot-key',
+    });
+}
+
+/**
+ * Point the DeepSeek source at the local mock server. Same shape as
+ * bootstrapMoonshotBackend: DeepSeek reads oai_settings.deepseek_model and the
+ * key lives under SECRET_KEYS.DEEPSEEK ('api_key_deepseek').
+ */
+export function bootstrapDeepseekBackend({ dataRoot, handle = 'default-user', baseURL, model = 'deepseek-chat' }) {
+    return bootstrapMockChatBackend({
+        dataRoot, handle, baseURL, source: 'deepseek', model,
+        modelKey: 'deepseek_model', secretKey: 'api_key_deepseek', secretValue: 'test-deepseek-key',
+    });
+}
+
+/**
+ * Shared bootstrap: point an OpenAI-compatible chat-completion source at the
+ * local mock server through the shared base_url override. Structural clone of
+ * bootstrapResponsesBackend with a source-specific model key and secret key.
+ */
+function bootstrapMockChatBackend({ dataRoot, handle = 'default-user', baseURL, source, model, modelKey, secretKey, secretValue }) {
     const settingsPath = resolve(userRoot(dataRoot, handle), 'settings.json');
     const s = existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, 'utf8')) : {};
     s.main_api = 'openai';
     s.firstRun = false;
     s.oai_settings = s.oai_settings || {};
-    s.oai_settings.chat_completion_source = 'moonshot';
-    s.oai_settings.moonshot_model = model;
+    s.oai_settings.chat_completion_source = source;
+    s.oai_settings[modelKey] = model;
     s.oai_settings.openai_model = model;
     s.oai_settings.stream_openai = true;
     s.oai_settings.base_url = baseURL;
     s.oai_settings.openai_max_context = 200000;
+    // Deterministic sampling baseline so wire assertions are meaningful. The
+    // scratch data root inherits the developer's settings.json, which may
+    // carry a custom_exclude_body that strips sampling params before the
+    // upstream call and would mask what the client actually sent.
+    s.oai_settings.custom_exclude_body = '';
+    s.oai_settings.temp_openai = 0.7;
+    s.oai_settings.top_p_openai = 0.9;
+    s.oai_settings.freq_pen_openai = 0.4;
+    s.oai_settings.pres_pen_openai = 0.4;
     // Same neutralize / clear-profile logic as the other bootstraps.
     const ext = (s.extension_settings = s.extension_settings || {});
     for (const slot of ['orchestrator', 'completion_preset_assistant', 'memory_graph', 'character_editor_assistant']) {
@@ -370,9 +403,9 @@ export function bootstrapMoonshotBackend({ dataRoot, handle = 'default-user', ba
     const secretsPath = resolve(userRoot(dataRoot, handle), 'secrets.json');
     let secrets = {};
     try { secrets = JSON.parse(readFileSync(secretsPath, 'utf8')); } catch { /* first seed */ }
-    secrets['api_key_moonshot'] = [{
-        id: 'e2e-kimi-key',
-        value: 'test-moonshot-key',
+    secrets[secretKey] = [{
+        id: `e2e-${source}-key`,
+        value: secretValue,
         label: 'e2e-mock',
         active: true,
     }];

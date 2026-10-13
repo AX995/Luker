@@ -41,7 +41,9 @@ export function clampReasoningToken(token, allowed) {
 export function resolveOpenAIEffort(token, model, { responsesApi = false } = {}) {
     const normalized = normalizeReasoningToken(token);
     if (normalized === 'auto') return undefined;
-    if (normalized === 'off') return 'none';
+    // GPT-6 Astra and GPT-6.1 Sol reject `none` with HTTP 400; the documented
+    // substitute is `low`.
+    if (normalized === 'off') return /gpt-6-astra|gpt-6\.1-sol/.test(model) ? 'low' : 'none';
     const isBaseGpt5 = /^gpt-5(-|$)/.test(model);
     const supportsXhigh = /gpt-6|gpt-5\.(4|5|6)|gpt-5\.1-codex-max/.test(model);
     const supportsMax = responsesApi && /gpt-6|gpt-5\.6/.test(model);

@@ -51,6 +51,9 @@ export async function dispatchAI21(ctx) {
         }
 
         const convertedPrompt = convertAI21Messages(body.messages, getPromptNames({ body }));
+        const useTools = Array.isArray(body.tools) && body.tools.length > 0;
+        // AI21 requires stream=false when tools are present, and n must be 1 when streaming.
+        const forceNonStreaming = useTools || Number(body.n) > 1;
         const requestBody = {
             messages: convertedPrompt,
             model: body.model,
@@ -58,7 +61,8 @@ export async function dispatchAI21(ctx) {
             temperature: body.temperature,
             top_p: body.top_p,
             stop: body.stop,
-            stream: body.stream,
+            stream: forceNonStreaming ? false : body.stream,
+            n: body.n,
             tools: body.tools,
             ...bodyParams,
         };

@@ -3569,6 +3569,7 @@ export async function createGenerationParameters(settings, model, type, messages
         chat_completion_sources.XAI,
         chat_completion_sources.AIMLAPI,
         chat_completion_sources.CHUTES,
+        chat_completion_sources.COHERE,
     ];
 
     // Sources that support logit bias
@@ -3579,6 +3580,7 @@ export async function createGenerationParameters(settings, model, type, messages
         chat_completion_sources.ELECTRONHUB,
         chat_completion_sources.CHUTES,
         chat_completion_sources.CUSTOM,
+        chat_completion_sources.WORKERS_AI,
     ];
 
     // Sources that support "n" parameter for multi-swipe
@@ -3588,7 +3590,10 @@ export async function createGenerationParameters(settings, model, type, messages
         chat_completion_sources.CUSTOM,
         chat_completion_sources.XAI,
         chat_completion_sources.AIMLAPI,
-        chat_completion_sources.MOONSHOT,
+        chat_completion_sources.MISTRALAI,
+        chat_completion_sources.AI21,
+        chat_completion_sources.SILICONFLOW,
+        chat_completion_sources.WORKERS_AI,
     ];
 
     const isO1 = gptSources.includes(settings.chat_completion_source) && ['o1-2024-12-17', 'o1'].includes(model);
@@ -3778,6 +3783,7 @@ export async function createGenerationParameters(settings, model, type, messages
     }
 
     if (settings.chat_completion_source === chat_completion_sources.MISTRALAI) {
+        generate_data.top_k = Number(settings.top_k_openai);
         generate_data.safe_prompt = false; // already defaults to false, but just incase they change that in the future.
         generate_data.stop = getCustomStoppingStrings(); // Mistral shouldn't have limits on stop strings.
     }
@@ -3807,23 +3813,26 @@ export async function createGenerationParameters(settings, model, type, messages
     }
 
     if (settings.chat_completion_source === chat_completion_sources.PERPLEXITY) {
-        generate_data.top_k = Number(settings.top_k_openai);
-        generate_data.frequency_penalty = Number(settings.freq_pen_openai);
-        generate_data.presence_penalty = Number(settings.pres_pen_openai);
+        // Perplexity accepts frequency_penalty/presence_penalty only at their default 0
+        // and rejects unrecognized top-level fields, so drop the penalties.
+        delete generate_data.frequency_penalty;
+        delete generate_data.presence_penalty;
         delete generate_data.stop;
     }
 
     // https://console.groq.com/docs/openai
     if (settings.chat_completion_source === chat_completion_sources.GROQ) {
-        delete generate_data.logprobs;
-        delete generate_data.logit_bias;
-        delete generate_data.top_logprobs;
-        delete generate_data.n;
+        // Groq ignores frequency_penalty/presence_penalty on all current models.
+        delete generate_data.frequency_penalty;
+        delete generate_data.presence_penalty;
     }
 
     // https://api-docs.deepseek.com/api/create-chat-completion
     if (settings.chat_completion_source === chat_completion_sources.DEEPSEEK) {
         generate_data.top_p = generate_data.top_p || Number.EPSILON;
+        // DeepSeek deprecated presence/frequency penalty; the API ignores them.
+        delete generate_data.frequency_penalty;
+        delete generate_data.presence_penalty;
         // DeepSeek thinking mode rejects `tool_choice` (returns 400). When reasoning_effort
         // is set the backend enables thinking, so strip tool_choice here. `tools` stays,
         // service falls back to auto behavior; callers that forced a named function
@@ -3834,12 +3843,15 @@ export async function createGenerationParameters(settings, model, type, messages
     }
 
     if (settings.chat_completion_source === chat_completion_sources.XAI) {
-        if (model.includes('grok-3-mini')) {
+        // The grok-3 family does not support presence/frequency penalties or stop sequences.
+        if (model.includes('grok-3')) {
             delete generate_data.presence_penalty;
             delete generate_data.frequency_penalty;
             delete generate_data.stop;
-        } else {
-            // As of 2025/09/21, only grok-3-mini accepts reasoning_effort
+        }
+
+        // Only grok-3-mini accepts reasoning_effort.
+        if (!model.includes('grok-3-mini')) {
             delete generate_data.reasoning_effort;
         }
 
@@ -3881,6 +3893,8 @@ export async function createGenerationParameters(settings, model, type, messages
 
     if (settings.chat_completion_source === chat_completion_sources.SILICONFLOW) {
         generate_data.siliconflow_endpoint = settings.siliconflow_endpoint || SILICONFLOW_ENDPOINT.GLOBAL;
+        generate_data.top_k = Number(settings.top_k_openai);
+        generate_data.min_p = Number(settings.min_p_openai);
     }
 
     // https://platform.kimi.ai/docs/api/models-overview
@@ -3903,12 +3917,19 @@ export async function createGenerationParameters(settings, model, type, messages
 
     if (settings.chat_completion_source === chat_completion_sources.WORKERS_AI) {
         generate_data.workers_ai_account_id = settings.workers_ai_account_id;
-        generate_data.top_k = settings.top_k_openai > 0 ? Math.min(Number(settings.top_k_openai), 50) : undefined;
-        generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
-        generate_data.seed = settings.seed >= 1 ? Number(settings.seed) : undefined;
-        generate_data.top_p = Math.max(Number(settings.top_p_openai), 0.001);
-        delete generate_data.n;
-        delete generate_data.logit_bias;
+        // Workers AI exposes two request schemas: the Llama/Qwen/Mistral family
+        // takes top_k/repetition_penalty but not n/logit_bias, while the DeepSeek
+        // family takes n/logit_bias but not top_k/repetition_penalty.
+        if (/deepseek/i.test(model)) {
+            generate_data.seed = settings.seed >= 1 ? Number(settings.seed) : undefined;
+        } else {
+            generate_data.top_k = settings.top_k_openai > 0 ? Math.min(Number(settings.top_k_openai), 50) : undefined; // cap-ok: Cloudflare Workers AI top_k range is 1-50
+            generate_data.repetition_penalty = Number(settings.repetition_penalty_openai);
+            generate_data.seed = settings.seed >= 1 ? Number(settings.seed) : undefined;
+            generate_data.top_p = Math.max(Number(settings.top_p_openai), 0.001);
+            delete generate_data.n;
+            delete generate_data.logit_bias;
+        }
     }
 
     // https://docs.nano-gpt.com/api-reference/endpoint/chat-completion#temperature-&-nucleus
@@ -3941,7 +3962,6 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.max_completion_tokens = generate_data.max_tokens;
         delete generate_data.max_tokens;
         delete generate_data.logprobs;
-        delete generate_data.top_logprobs;
         delete generate_data.stop;
         delete generate_data.logit_bias;
         delete generate_data.temperature;
@@ -3964,7 +3984,6 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.max_completion_tokens = generate_data.max_tokens;
         delete generate_data.max_tokens;
         delete generate_data.logprobs;
-        delete generate_data.top_logprobs;
         if (/gpt-5-chat-latest/.test(model)) {
             delete generate_data.tools;
             delete generate_data.tool_choice;
@@ -3981,6 +4000,14 @@ export async function createGenerationParameters(settings, model, type, messages
             delete generate_data.logit_bias;
             delete generate_data.stop;
         }
+        // Azure documents that gpt-5.6 cannot combine tools with reasoning on
+        // Chat Completions: the request fails even without an explicit effort.
+        // Disable reasoning when tools are present (the documented workaround).
+        if (settings.chat_completion_source === chat_completion_sources.AZURE_OPENAI
+            && /gpt-5\.6/.test(model)
+            && Array.isArray(generate_data.tools) && generate_data.tools.length > 0) {
+            generate_data.reasoning_effort = 'off';
+        }
     }
 
     if (gptSources.includes(settings.chat_completion_source) && /gpt-6-astra/.test(model)) {
@@ -3989,7 +4016,22 @@ export async function createGenerationParameters(settings, model, type, messages
         delete generate_data.temperature;
         delete generate_data.top_p;
         delete generate_data.logprobs;
-        delete generate_data.top_logprobs;
+        // GPT-6 Astra supports Chat Completions but not tool calling there;
+        // function tools require the Responses API, a separate source
+        // (openai_responses) that this block never runs for.
+        delete generate_data.tools;
+        delete generate_data.tool_choice;
+        // `none` reasoning effort is rejected; fall back to `low`.
+        if (generate_data.reasoning_effort === 'off') {
+            generate_data.reasoning_effort = 'low';
+        }
+    }
+
+    // OpenAI Responses API: reasoning models reject temperature and top_p.
+    if (settings.chat_completion_source === chat_completion_sources.OPENAI_RESPONSES
+        && (/^(o1|o3|o4)/.test(model) || /gpt-5/.test(model) || /gpt-6/.test(model))) {
+        delete generate_data.temperature;
+        delete generate_data.top_p;
     }
 
     // Claude Fable / Claude 5 models removed sampling parameters and reject them with HTTP 400,
@@ -8671,8 +8713,6 @@ async function onModelChange() {
         $('#openai_max_context').attr('max', maxContext);
         oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
         $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
-        oai_settings.temp_openai = Math.min(claude_max_temp, oai_settings.temp_openai);
-        $('#temp_openai').attr('max', claude_max_temp).val(oai_settings.temp_openai).trigger('input');
     }
 
     if (oai_settings.chat_completion_source === chat_completion_sources.FIREWORKS) {

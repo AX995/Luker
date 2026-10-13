@@ -193,7 +193,7 @@ export async function dispatchMakerSuite(ctx) {
         const isThinkingConfigModel = m => (modelIdMatchesFamily(m, /^gemini-2.5-(flash|pro)/) && !/-image(-preview)?$/.test(m)) || (modelIdMatchesFamily(m, /^gemini-3[.\d]*-(flash|pro)/));
         const isImageSizeModel = m => modelIdMatchesFamily(m, /^gemini-3/);
         // https://ai.google.dev/gemini-api/docs/latest-model#api-changes-and-parameter-updates
-        const noSamplingModel = modelIdMatchesFamily(model, /^gemini-3\.[67]-flash|^gemini-3\.5-flash-lite/);
+        const noSamplingModel = modelIdMatchesFamily(model, /^gemini-3\.[678]-flash|^gemini-3\.5-flash-lite/);
 
         const noSearchModels = [
             'gemini-2.0-flash-lite',
