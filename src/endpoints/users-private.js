@@ -322,12 +322,21 @@ function resolveAllowedRestorePath(normalizedEntryPath, rootPath, allowedFiles, 
     for (let index = 0; index < parts.length; index++) {
         const candidate = parts.slice(index).join('/');
         if (candidate) {
-            candidates.push(candidate);
+            candidates.push({ candidate, removed: parts.slice(0, index) });
         }
     }
 
-    for (const candidate of candidates) {
+    for (const { candidate, removed } of candidates) {
         if (!candidate || candidate === 'manifest.json') {
+            continue;
+        }
+
+        // Never reinterpret a source-tree path as a user-data path. Cutting a
+        // `scripts/` segment out of `public/scripts/extensions/<name>/...` would
+        // otherwise land the built-in extension inside the user's extensions
+        // directory, where discover() reports it as a local third-party
+        // extension whose relative imports 404.
+        if (removed.includes('scripts')) {
             continue;
         }
 

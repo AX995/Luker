@@ -35,6 +35,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - LAN Sync pairing links now embed a detected LAN address instead of a localhost address, and the generating device can pick another address.
 - LAN Sync now reports the underlying network error when the other device is unreachable.
 - Fixed ZIP restores stalling while extracting large files.
+- Fixed ZIP restores importing the built-in extensions as third-party extensions when the archive contains the source tree, which made every built-in extension fail to load.
 - Fixed onboarding completion overwriting API connection profiles and personas imported from a Data ZIP.
 
 ### HarmonyOS App
