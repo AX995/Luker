@@ -604,6 +604,13 @@ export async function loadPlugins(app, pluginsPath) {
             return emptyFn;
         }
 
+        // Android stores plugins outside the runtime. Import through its prepared
+        // alias so host-relative imports and package lookups retain the host layout.
+        const loadPath = process.env.LUKER_SERVER_PLUGINS_LOAD_PATH || pluginsPath;
+        if (loadPath !== pluginsPath && fs.realpathSync(loadPath) !== fs.realpathSync(pluginsPath)) {
+            throw new Error('Server plugin load path does not refer to the configured plugins directory');
+        }
+
         const files = fs.readdirSync(pluginsPath);
 
         // No plugins to load.
@@ -614,7 +621,7 @@ export async function loadPlugins(app, pluginsPath) {
         await updatePlugins(pluginsPath);
 
         for (const file of files) {
-            const pluginFilePath = path.join(pluginsPath, file);
+            const pluginFilePath = path.join(loadPath, file);
 
             if (fs.statSync(pluginFilePath).isDirectory()) {
                 await loadFromDirectory(app, pluginFilePath, exitHooks);

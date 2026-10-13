@@ -19,7 +19,7 @@ object LukerRuntimeManager {
     private const val MAX_PORT_PROBE_ATTEMPTS = 50
     private val started = AtomicBoolean(false)
     private val librariesLoaded = AtomicBoolean(false)
-    private const val RUNTIME_LAYOUT_VERSION = "3"
+    private const val RUNTIME_LAYOUT_VERSION = "4"
     private const val RUNTIME_MARKER = ".runtime-version"
     private const val RUNTIME_DIR_NAME = "luker-runtime"
     private const val PERSISTENT_DATA_DIR_NAME = "luker-data"
@@ -136,9 +136,8 @@ object LukerRuntimeManager {
                 serverPort = selectedPort
 
                 val script = File(paths.runtimeRoot, "bootstrap.js")
-                val args = arrayOf(
-                    "node",
-                    script.absolutePath,
+                val args = ServerPluginRuntime.nodeArguments(
+                    script,
                     "--port",
                     selectedPort.toString(),
                     "--dataRoot",
@@ -198,6 +197,8 @@ object LukerRuntimeManager {
 
     private fun prepareRuntime(context: Context): RuntimePaths {
         val runtimeRoot = File(context.filesDir, RUNTIME_DIR_NAME)
+        // Detach before migration or recursive runtime cleanup can follow the alias.
+        ServerPluginRuntime.detach(runtimeRoot)
         val dataRoot = getPreferredDataRoot(context)
         val internalDataRoot = File(context.filesDir, PERSISTENT_DATA_DIR_NAME)
         val persistRoot = File(dataRoot, RUNTIME_PERSIST_DIR_NAME)
@@ -235,6 +236,8 @@ object LukerRuntimeManager {
             markerFile.writeText(markerValue)
             Log.i(TAG, "Runtime assets prepared at ${runtimeRoot.absolutePath}")
         }
+
+        ServerPluginRuntime.prepare(runtimeRoot, serverPluginsRoot)
 
         return RuntimePaths(
             runtimeRoot = runtimeRoot,

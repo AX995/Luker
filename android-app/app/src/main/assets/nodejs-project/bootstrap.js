@@ -78,6 +78,8 @@ if (!process.env.LUKER_PREBUILT_BUNDLES_DIR) {
 }
 
 process.chdir(runtimeRoot);
+// Management retains --serverPluginsPath; only module imports use the host-relative alias.
+process.env.LUKER_SERVER_PLUGINS_LOAD_PATH = path.join(runtimeRoot, '_server-plugins');
 appendLog('BOOT', `argv=${JSON.stringify(process.argv)}`);
 appendLog('BOOT', `cwd=${process.cwd()}`);
 appendLog('BOOT', `runtimeRoot=${runtimeRoot}`);
