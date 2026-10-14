@@ -358,6 +358,112 @@
     overflow: auto;
 }
 
+/* ---- Tools (request tool definitions) ---- */
+
+.ri-tools-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.ri-tools-head h4 {
+    margin: 0;
+}
+
+.ri-tool-choice {
+    font-family: var(--monoFontFamily, ui-monospace, monospace);
+    font-size: 0.75em;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor, #557) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--SmartThemeQuoteColor, #557) 40%, transparent);
+    opacity: 0.85;
+    white-space: nowrap;
+}
+
+.ri-tool-name {
+    font-family: var(--monoFontFamily, ui-monospace, monospace);
+    font-weight: 600;
+    color: var(--SmartThemeQuoteColor, #4fc3f7);
+}
+
+.ri-tool-desc {
+    flex: 1;
+    min-width: 0;
+    opacity: 0.75;
+    font-size: 0.88em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ri-tool-count {
+    margin-left: auto;
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 0.78em;
+    opacity: 0.55;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor, #444) 45%, transparent);
+    border-radius: 10px;
+    padding: 0 7px;
+    white-space: nowrap;
+}
+
+.ri-tool-schema {
+    padding: 7px 10px 9px;
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor, #444) 30%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #111) 70%, transparent);
+    overflow-x: auto;
+}
+
+.ri-tool-empty {
+    font-size: 0.8em;
+    font-style: italic;
+    opacity: 0.6;
+}
+
+.ri-params {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.ri-params th {
+    text-align: left;
+    font-size: 0.72em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.5;
+    font-weight: 600;
+    padding: 1px 12px 5px 0;
+}
+
+.ri-params td {
+    padding: 3px 12px 3px 0;
+    font-size: 0.85em;
+    vertical-align: top;
+}
+
+.ri-param-name {
+    font-family: var(--monoFontFamily, ui-monospace, monospace);
+    white-space: nowrap;
+}
+
+.ri-param-req {
+    color: #f44336;
+}
+
+.ri-param-type {
+    font-family: var(--monoFontFamily, monospace);
+    color: var(--SmartThemeQuoteColor, #4fc3f7);
+    opacity: 0.85;
+    white-space: nowrap;
+}
+
+.ri-param-desc {
+    opacity: 0.7;
+    word-break: break-word;
+}
+
 .ri-filter-btn {
     padding: 4px 12px;
     font-size: 0.85em;

@@ -6,6 +6,12 @@
 
 import { callGenericPopup, POPUP_TYPE } from './popup.js';
 import { t } from './i18n.js';
+import {
+    normalizeWireTools,
+    describeToolChoice,
+    buildToolParamRows,
+    countToolParams,
+} from './request-inspector-tools.js';
 
 const MODULE_NAME = 'RequestInspector';
 let cachedList = [];
@@ -563,6 +569,12 @@ function extractWireMessages(wr) {
     }
 
     const consumedKeys = new Set(['messages', 'contents', 'input', 'system', 'instructions', 'systemInstruction', 'system_instruction']);
+    // Tools are rendered by buildToolsSectionHtml(). Only claim the tool keys
+    // when there is something to render, so a bare `tool_choice` with no tools
+    // still shows up under Other Params instead of silently disappearing.
+    if (normalizeWireTools(wr).tools.length) {
+        for (const key of ['tools', 'functions', 'tool_choice', 'toolChoice', 'function_call']) consumedKeys.add(key);
+    }
     const otherKeys = Object.keys(wr).filter(k => !consumedKeys.has(k));
     return { systemText, items, otherKeys };
 }
@@ -586,6 +598,72 @@ function extractWireReasoningEffort(wr) {
         if (typeof tc.thinkingBudget === 'number') return `budget: ${tc.thinkingBudget}`;
     }
     return null;
+}
+
+// Render the request's tool definitions as a dedicated section: one foldable
+// row per tool (name · description · parameter count) that expands into a
+// parameter table. Tools are pulled out of `Other Params` by
+// extractWireMessages() so they never appear twice.
+function buildToolsSectionHtml(wr, q) {
+    const { tools, toolChoice } = normalizeWireTools(wr);
+    if (!tools.length) return '';
+
+    const qLower = q ? q.trim().toLowerCase() : '';
+    const choiceLabel = describeToolChoice(toolChoice);
+
+    const rows = tools.map(tool => {
+        const paramCount = countToolParams(tool.parameters);
+        const paramRows = buildToolParamRows(tool.parameters);
+        const searchText = [tool.name, tool.description, ...paramRows.map(r => `${r.name} ${r.type} ${r.description}`)]
+            .join(' ').toLowerCase();
+        const hit = !!(qLower && searchText.includes(qLower));
+
+        const descHtml = tool.description
+            ? `<span class="ri-tool-desc" title="${escapeHtml(tool.description)}">${highlightHtml(tool.description, q)}</span>`
+            : '<span class="ri-tool-desc"></span>';
+        const countHtml = paramCount
+            ? `<span class="ri-tool-count">${paramCount} ${escapeHtml(paramCount === 1 ? t`param` : t`params`)}</span>`
+            : '';
+
+        let bodyHtml;
+        if (paramRows.length) {
+            const trs = paramRows.map(r => {
+                const indent = r.depth ? ` style="padding-left:${r.depth * 14}px"` : '';
+                const req = r.required
+                    ? ` <span class="ri-param-req" title="${escapeHtml(t`Required`)}">*</span>`
+                    : '';
+                return `<tr><td class="ri-param-name"${indent}>${highlightHtml(r.name, q)}${req}</td><td class="ri-param-type">${escapeHtml(r.type)}</td><td class="ri-param-desc">${highlightHtml(r.description, q)}</td></tr>`;
+            }).join('\n');
+            bodyHtml = `<div class="ri-tool-schema"><table class="ri-params"><thead><tr><th>${t`Parameter`}</th><th>${t`Type`}</th><th>${t`Description`}</th></tr></thead><tbody>${trs}</tbody></table></div>`;
+        } else {
+            bodyHtml = `<div class="ri-tool-schema"><div class="ri-tool-empty">${escapeHtml(t`(no parameters)`)}</div></div>`;
+        }
+
+        return `
+ <details class="ri-msg ri-tool${hit ? ' ri-msg-hit' : ''}"${hit ? ' open' : ''}>
+ <summary class="ri-msg-summary">
+ <span class="ri-tool-name">${highlightHtml(tool.name, q)}</span>
+ ${descHtml}
+ ${countHtml}
+ </summary>
+ ${bodyHtml}
+ </details>`;
+    }).join('\n');
+
+    const choiceHtml = choiceLabel
+        ? `<span class="ri-tool-choice" title="${escapeHtml(t`Tool Choice`)}">${escapeHtml(choiceLabel)}</span>`
+        : '';
+
+    return `
+ <div class="ri-detail-section">
+ <div class="ri-tools-head">
+ <h4>${t`Tools`} (${tools.length})</h4>
+ ${choiceHtml}
+ </div>
+ <div class="ri-messages">
+ ${rows}
+ </div>
+ </div>`;
 }
 
 function buildWireRequestHtml(detail, q) {
@@ -656,6 +734,8 @@ function buildChatDetailBody(detail) {
  </div>
 
  ${buildWireRequestHtml(detail, q)}
+
+ ${buildToolsSectionHtml(detail.wireRequest, q)}
 
  <div class="ri-detail-section">
  <h4>${t`Source Messages`} (${detail.messageCount})</h4>
