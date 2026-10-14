@@ -48,6 +48,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 ### Memory Graph
 
 - Fixed Memory Graph schema iteration failing to apply valid node-type edits because the read tool exposed fields the set tool's schema does not accept.
+- Memory Graph extraction and recall retries now show an info toast naming the failure reason: a failed request, an incomplete result, or an invalid result.
 
 ### Iteration Studio
 

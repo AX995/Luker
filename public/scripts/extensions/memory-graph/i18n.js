@@ -612,6 +612,9 @@ export function registerLocaleData() {
         'Delete failed': '删除失败',
         'Session delete failed — it is still in the saved history.': '会话删除失败——它仍保存在历史记录中。',
         'Some sessions could not be deleted — they are still in the saved history.': '部分会话删除失败——它们仍保存在历史记录中。',
+        'Memory graph request failed, retrying (${0}/${1})…': '记忆图请求失败，正在重试（第 ${0}/${1} 次）…',
+        'Memory graph extraction result incomplete, retrying (${0}/${1})…': '记忆图抽取结果不完整，正在重试（第 ${0}/${1} 次）…',
+        'Memory graph extraction result invalid, retrying (${0}/${1})…': '记忆图抽取结果无效，正在重试（第 ${0}/${1} 次）…',
     });
     addLocaleData('zh-tw', {
         'Memory': '記憶',
@@ -1203,5 +1206,8 @@ export function registerLocaleData() {
         'Delete failed': '刪除失敗',
         'Session delete failed — it is still in the saved history.': '會話刪除失敗——它仍保存在歷史記錄中。',
         'Some sessions could not be deleted — they are still in the saved history.': '部分會話刪除失敗——它們仍保存在歷史記錄中。',
+        'Memory graph request failed, retrying (${0}/${1})…': '記憶圖請求失敗，正在重試（第 ${0}/${1} 次）…',
+        'Memory graph extraction result incomplete, retrying (${0}/${1})…': '記憶圖抽取結果不完整，正在重試（第 ${0}/${1} 次）…',
+        'Memory graph extraction result invalid, retrying (${0}/${1})…': '記憶圖抽取結果無效，正在重試（第 ${0}/${1} 次）…',
     });
 }

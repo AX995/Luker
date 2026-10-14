@@ -3374,6 +3374,19 @@ async function waitForRpmSlot(settings, abortSignal = null) {
     }
 }
 
+/**
+ * Tag an error thrown while parsing / validating the model's tool calls, so
+ * retry toasts can describe it as an unusable-output retry rather than a
+ * request failure. Transport errors stay untagged and read as request
+ * failures.
+ */
+function markToolCallValidationError(error) {
+    if (error && typeof error === 'object') {
+        try { error.__toolCallValidation = true; } catch { /* frozen error */ }
+    }
+    return error;
+}
+
 async function requestSingleFunctionCallWithRetry(context, settings, {
     taskMessages = [],
     runtimeWorldInfo = null,
@@ -3447,11 +3460,11 @@ async function requestSingleFunctionCallWithRetry(context, settings, {
             const filteredCalls = normalizedCalls.filter(call => call.name === fnName);
             const validationError = validateParsedToolCalls(filteredCalls, tools);
             if (validationError) {
-                throw new Error(validationError);
+                throw markToolCallValidationError(new Error(validationError));
             }
             const matched = filteredCalls.find(call => call.name === fnName);
             if (!matched) {
-                throw new Error(`Model returned tool call, but not '${fnName}'.`);
+                throw markToolCallValidationError(new Error(`Model returned tool call, but not '${fnName}'.`));
             }
             return matched.args;
         } catch (error) {
@@ -3463,6 +3476,7 @@ async function requestSingleFunctionCallWithRetry(context, settings, {
             if (attempt >= retries) {
                 throw error;
             }
+            notifyInfo(i18nFormat('Memory graph request failed, retrying (${0}/${1})…', attempt + 1, retries));
             console.warn(`[${MODULE_NAME}] Tool call '${fnName}' failed. Retrying (${attempt + 1}/${retries})...`, error);
         } finally {
             finishActiveRecallRequest(activeRequestState);
@@ -3533,7 +3547,7 @@ async function requestToolCallsWithRetry(context, settings, {
                 : normalizedCalls;
             const validationError = validateParsedToolCalls(filteredCalls, tools);
             if (validationError) {
-                throw new Error(validationError);
+                throw markToolCallValidationError(new Error(validationError));
             }
             return filteredCalls;
         } catch (error) {
@@ -3545,6 +3559,7 @@ async function requestToolCallsWithRetry(context, settings, {
             if (attempt >= retries) {
                 throw error;
             }
+            notifyInfo(i18nFormat('Memory graph request failed, retrying (${0}/${1})…', attempt + 1, retries));
             console.warn(`[${MODULE_NAME}] Multi tool call request failed. Retrying (${attempt + 1}/${retries})...`, error);
         } finally {
             finishActiveRecallRequest(activeRequestState);
@@ -4639,8 +4654,12 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
     );
     let validatedOps = [];
     let retryReason = '';
+    let retryCategory = 'incomplete';
     let lastRetryableError = null;
     for (let attempt = 0; attempt <= semanticRetries; attempt++) {
+        if (attempt > 0) {
+            notifyExtractionRetry(retryCategory, attempt - 1, semanticRetries);
+        }
         const reminderText = attempt > 0
             ? `Previous response was incomplete. Return COMPLETE extraction tool calls in one response: exactly one final luker_rpg_extract_done as the last call (SKIP-all with done-only is valid).${retryReason ? ` Fix: ${retryReason}` : ''}`
             : '';
@@ -4674,20 +4693,25 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
             }
             lastRetryableError = error;
             retryReason = `request_error: ${String(error?.message || error)}`;
+            retryCategory = error?.__toolCallValidation ? 'invalid' : 'request';
             console.warn(`[${MODULE_NAME}] Extract request failed. Retrying semantic pass (${attempt + 1}/${semanticRetries})...`, error);
             continue;
         }
         if (!Array.isArray(calls) || calls.length < 1) {
             retryReason = 'Tool calls are missing or incomplete.';
+            retryCategory = 'incomplete';
             continue;
         }
         const names = calls.map(call => String(call?.name || '').trim()).filter(Boolean);
         const doneCount = names.filter(name => name === 'luker_rpg_extract_done').length;
         if (doneCount < 1) {
+            retryReason = 'luker_rpg_extract_done was not called.';
+            retryCategory = 'incomplete';
             continue;
         }
         if (names[names.length - 1] !== 'luker_rpg_extract_done') {
             retryReason = 'luker_rpg_extract_done must be the last call.';
+            retryCategory = 'incomplete';
             continue;
         }
         const typeCalls = calls.filter(call => specByToolName.has(String(call?.name || '')));
@@ -4796,11 +4820,13 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
             }
         }
         if (invalid) {
+            retryCategory = 'invalid';
             continue;
         }
         const missingForceTypes = [...forceUpdateTypes].filter(typeId => !calledTypes.has(typeId));
         if (missingForceTypes.length > 0) {
             retryReason = `Missing force-update type tool calls: ${missingForceTypes.join(', ')}.`;
+            retryCategory = 'incomplete';
             continue;
         }
         validatedOps = ops;
@@ -11894,6 +11920,24 @@ function notifyInfo(message) {
     if (typeof toastr !== 'undefined') {
         toastr.info(String(message));
     }
+}
+
+/**
+ * Info toast for an extraction retry round. `category` is 'request' |
+ * 'incomplete' | 'invalid'; `attemptIndex` is the 0-based index of the
+ * attempt that just failed and `maxRetries` the configured retry budget.
+ * Silenced when no retry follows (the failed attempt was the last one).
+ */
+function notifyExtractionRetry(category, attemptIndex, maxRetries) {
+    if (!(attemptIndex < maxRetries)) {
+        return;
+    }
+    const key = category === 'request'
+        ? 'Memory graph request failed, retrying (${0}/${1})…'
+        : category === 'invalid'
+            ? 'Memory graph extraction result invalid, retrying (${0}/${1})…'
+            : 'Memory graph extraction result incomplete, retrying (${0}/${1})…';
+    notifyInfo(i18nFormat(key, attemptIndex + 1, maxRetries));
 }
 
 function showPersistentRuntimeNotice(message, { level = 'error' } = {}) {
