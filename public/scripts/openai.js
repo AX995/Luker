@@ -104,6 +104,7 @@ import { t, translate } from './i18n.js';
 import { ToolManager } from './tool-calling.js';
 import { accountStorage } from './util/AccountStorage.js';
 import { AbortReason } from './util/AbortReason.js';
+import { pushReasoningDetails } from './util/reasoning-details.js';
 import { resolveChatCompletionRequestProfile } from './extensions/connection-manager/profile-resolver.js';
 import { COMETAPI_IGNORE_PATTERNS, IGNORE_SYMBOL, MEDIA_DISPLAY, MEDIA_TYPE } from './constants.js';
 import { maybeDeleteLinkedLorebookForPresetDeletion } from './world-info.js';
@@ -4861,27 +4862,13 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
         }
         // OpenRouter emits reasoning_details as an ordered array; a single assistant turn
         // may contain multiple encrypted entries (interleaved thinking blocks on Claude,
-        // multiple reasoning entries on other providers). Preserve each detail verbatim so
-        // the next request can echo the full sequence back to the upstream provider.
-        const reasoningDetails = [
+        // multiple reasoning entries on other providers). Accumulate with the provider's
+        // own merging semantics — consecutive reasoning.text / reasoning.summary deltas
+        // concatenate into one entry — so the stored array stays round-trippable upstream.
+        pushReasoningDetails(state, [
             ...(data?.choices?.[0]?.delta?.reasoning_details || []),
             ...(data?.choices?.[0]?.message?.reasoning_details || []),
-        ];
-        reasoningDetails.forEach((detail) => {
-            if (!detail || typeof detail !== 'object') {
-                return;
-            }
-            const isEncrypted = detail.type === 'reasoning.encrypted' && typeof detail.data === 'string' && detail.data.length > 0;
-            const isToolLikeId = typeof detail.id === 'string' && /^(tool_|call_)/.test(detail.id);
-            if (isEncrypted && isToolLikeId) {
-                state.toolSignatures[detail.id] = detail.data;
-            }
-            const preserved = { ...detail };
-            if (!Number.isInteger(preserved.index)) {
-                preserved.index = state.reasoningDetails.length;
-            }
-            state.reasoningDetails.push(preserved);
-        });
+        ]);
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
     } else if ([chat_completion_sources.CUSTOM, chat_completion_sources.OPENAI_RESPONSES, chat_completion_sources.POLLINATIONS, chat_completion_sources.AIMLAPI, chat_completion_sources.MOONSHOT, chat_completion_sources.COMETAPI, chat_completion_sources.ELECTRONHUB, chat_completion_sources.NANOGPT, chat_completion_sources.ZAI, chat_completion_sources.SILICONFLOW, chat_completion_sources.CHUTES, chat_completion_sources.WORKERS_AI, chat_completion_sources.FIREWORKS].includes(chat_completion_source)) {
         if (show_thoughts) {
