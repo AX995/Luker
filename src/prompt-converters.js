@@ -673,24 +673,41 @@ export function convertGooglePrompt(messages, model, useSysPrompt, names) {
             });
         }
 
-        // One input message = one output content entry. Consecutive same-role
-        // messages are NOT merged here. The Google API does not require
-        // alternating roles (see the Content type reference:
+        // One input message = one output content entry, with ONE exception:
+        // consecutive tool-response messages are grouped below. General
+        // same-role squashing is deliberately NOT done here — the Google API
+        // does not require alternating roles (see the Content type reference:
         // https://ai.google.dev/api/caching -- `role` is described only as
-        // "Must be either 'user' or 'model'", with no sequence constraint).
-        // If a user wants to squash consecutive same-role messages, they can
-        // pick a prompt post-processing option ("Merge consecutive roles" /
-        // MERGE) in Settings; the generic postProcessPrompt runs in the
-        // handler preamble (src/endpoints/backends/chat-completions.js:
-        // 1162-1170) before this converter, so their choice is honored.
-        // Hard-coding a merge here would override that choice for Google
-        // users only, which was the historical behavior (introduced by
-        // upstream ST PR #1973, 2024-03-27, motivated by an unverified
-        // "gemini-1.5-pro was incoherent without merging" claim).
-        contents.push({
-            role: message.role,
-            parts: parts,
-        });
+        // "Must be either 'user' or 'model'", with no sequence constraint),
+        // and hard-coding it would override the user's
+        // `custom_prompt_post_processing` choice for Google users only (the
+        // historical behavior introduced by upstream ST PR #1973,
+        // 2024-03-27, motivated by an unverified "gemini-1.5-pro was
+        // incoherent without merging" claim). Users who want same-role
+        // squashing can pick "Merge consecutive roles" (MERGE) in Settings;
+        // the generic postProcessPrompt runs in the handler preamble
+        // (src/endpoints/backends/chat-completions.js:1162-1170) before this
+        // converter, so their choice is honored.
+        //
+        // Tool responses are the exception because the API requires it, not
+        // as a style preference: every functionCall part in a model turn must
+        // be answered by functionResponse parts in the SAME following turn. A
+        // caller replaying N tool results as N separate role:'tool' messages
+        // (the OpenAI shape) would otherwise emit N user contents each holding
+        // one functionResponse, and Gemini rejects that with "number of
+        // function response parts is not equal to the number of function call
+        // parts of the function call turn". Group them.
+        const isToolResponse = parts.some(part => part.functionResponse);
+        const previous = contents[contents.length - 1];
+        if (isToolResponse && previous && previous.role === message.role
+            && Array.isArray(previous.parts) && previous.parts.some(part => part.functionResponse)) {
+            previous.parts.push(...parts);
+        } else {
+            contents.push({
+                role: message.role,
+                parts: parts,
+            });
+        }
     });
 
     return { contents: contents, system_instruction: system_instruction };

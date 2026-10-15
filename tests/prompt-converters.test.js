@@ -1615,6 +1615,51 @@ describe('convertGooglePrompt', () => {
         expect(funcResp.functionResponse.name).toBe('search');
     });
 
+    test('groups parallel tool responses into a single user turn', () => {
+        const messages = [
+            { role: 'user', content: 'do two things' },
+            { role: 'assistant', tool_calls: [
+                { id: 'tc1', function: { name: 'alpha', arguments: '{}' } },
+                { id: 'tc2', function: { name: 'beta', arguments: '{}' } },
+            ] },
+            { role: 'tool', content: 'r1', tool_call_id: 'tc1' },
+            { role: 'tool', content: 'r2', tool_call_id: 'tc2' },
+        ];
+        const result = mod.convertGooglePrompt(messages, 'gemini-2.5-pro', false, names);
+
+        const modelContent = result.contents.find(c => c.role === 'model');
+        expect(modelContent.parts.filter(p => p.functionCall)).toHaveLength(2);
+
+        const modelIndex = result.contents.indexOf(modelContent);
+        const responseContent = result.contents[modelIndex + 1];
+        expect(responseContent.role).toBe('user');
+        const responseNames = responseContent.parts
+            .filter(p => p.functionResponse)
+            .map(p => p.functionResponse.name);
+        expect(responseNames).toEqual(['alpha', 'beta']);
+    });
+
+    test('does not merge a following user text turn into the tool response turn', () => {
+        const messages = [
+            { role: 'user', content: 'hi' },
+            { role: 'assistant', tool_calls: [
+                { id: 'tc1', function: { name: 'alpha', arguments: '{}' } },
+                { id: 'tc2', function: { name: 'beta', arguments: '{}' } },
+            ] },
+            { role: 'tool', content: 'r1', tool_call_id: 'tc1' },
+            { role: 'tool', content: 'r2', tool_call_id: 'tc2' },
+            { role: 'user', content: 'next question' },
+        ];
+        const result = mod.convertGooglePrompt(messages, 'gemini-2.5-pro', false, names);
+
+        const responseContent = result.contents.find(c => c.parts.some(p => p.functionResponse));
+        expect(responseContent.parts.filter(p => p.functionResponse)).toHaveLength(2);
+
+        const last = result.contents[result.contents.length - 1];
+        expect(last.parts.some(p => p.functionResponse)).toBe(false);
+        expect(last.parts.some(p => typeof p.text === 'string')).toBe(true);
+    });
+
     test('prepends example names when useSysPrompt is true', () => {
         const messages = [
             { role: 'system', name: 'example_assistant', content: 'Greetings' },
