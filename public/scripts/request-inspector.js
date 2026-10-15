@@ -12,6 +12,11 @@ import {
     buildToolParamRows,
     countToolParams,
 } from './request-inspector-tools.js';
+import {
+    extractMessageReasoning,
+    renderReasoningItem,
+    renderReasoningItems,
+} from './request-inspector-reasoning.js';
 
 const MODULE_NAME = 'RequestInspector';
 let cachedList = [];
@@ -119,133 +124,6 @@ function formatMessage(msg) {
     }
 
     return sections.join('\n\n');
-}
-
-/**
- * Collect reasoning artifacts (thinking blocks, encrypted signatures, plain
- * reasoning text) attached to a message across every provider dialect Luker
- * touches. Returns a flat ordered list so the UI can render each item with a
- * dedicated block style, replacing the raw-JSON fallback for opaque payloads.
- *
- * Supported inputs:
- *   - Claude request side: assistant `content` array containing
- *     `{type:'thinking',thinking,signature}` / `{type:'redacted_thinking',data}`
- *   - Server-normalized OpenAI-shape: `message.reasoning_content` /
- *     `message.reasoning` (plain text) and `message.reasoning_blocks`
- *     (Anthropic-native array) and `message.reasoning_details` (OpenRouter
- *     opaque encrypted array). Top-level `message.signature` is captured too.
- */
-function extractMessageReasoning(msg) {
-    const items = [];
-    if (msg && typeof msg === 'object') {
-        if (typeof msg.reasoning_content === 'string' && msg.reasoning_content) {
-            items.push({ kind: 'text', text: msg.reasoning_content, source: 'reasoning_content' });
-        }
-        if (typeof msg.reasoning === 'string' && msg.reasoning) {
-            items.push({ kind: 'text', text: msg.reasoning, source: 'reasoning' });
-        }
-        if (Array.isArray(msg.reasoning_blocks)) {
-            for (const b of msg.reasoning_blocks) {
-                if (b?.type === 'thinking') {
-                    items.push({ kind: 'thinking', text: b.thinking || '', signature: b.signature || '', source: 'reasoning_blocks' });
-                } else if (b?.type === 'redacted_thinking') {
-                    items.push({ kind: 'redacted_thinking', data: b.data || '', source: 'reasoning_blocks' });
-                }
-            }
-        }
-        if (Array.isArray(msg.reasoning_details) && msg.reasoning_details.length) {
-            items.push({ kind: 'details', details: msg.reasoning_details, source: 'reasoning_details' });
-        }
-        if (typeof msg.signature === 'string' && msg.signature) {
-            items.push({ kind: 'signature', signature: msg.signature, source: 'signature' });
-        }
-        if (Array.isArray(msg.content)) {
-            for (const p of msg.content) {
-                if (p?.type === 'thinking') {
-                    items.push({ kind: 'thinking', text: p.thinking || '', signature: p.signature || '', source: 'content_block' });
-                } else if (p?.type === 'redacted_thinking') {
-                    items.push({ kind: 'redacted_thinking', data: p.data || '', source: 'content_block' });
-                }
-            }
-        }
-    }
-    return items;
-}
-
-/**
- * Render a single reasoning artifact into the Inspector's styled block.
- * Kept consistent with tool_call rendering: badge header + monospace body,
- * folded inside a <details> so long payloads don't dominate the panel.
- */
-function renderReasoningItem(item, q) {
-    if (!item) return '';
-    const kind = String(item.kind || '');
-    let badge = t`Reasoning`;
-    let bodyHtml = '';
-    let extraMeta = '';
-
-    if (kind === 'thinking') {
-        badge = t`Thinking`;
-        const textPart = item.text
-            ? `<pre class="ri-reasoning-body">${highlightHtml(item.text, q)}</pre>`
-            : `<div class="ri-reasoning-empty">${escapeHtml(t`(empty thinking body)`)}</div>`;
-        const sigPart = item.signature
-            ? `<div class="ri-reasoning-sig-row"><span class="ri-reasoning-sig-label">${escapeHtml(t`Signature`)}</span><code class="ri-reasoning-sig">${escapeHtml(item.signature)}</code></div>`
-            : '';
-        bodyHtml = textPart + sigPart;
-    } else if (kind === 'redacted_thinking') {
-        badge = t`Redacted Thinking`;
-        bodyHtml = `<div class="ri-reasoning-sig-row"><span class="ri-reasoning-sig-label">${escapeHtml(t`Data`)}</span><code class="ri-reasoning-sig">${escapeHtml(item.data || '')}</code></div>`;
-    } else if (kind === 'text') {
-        badge = t`Reasoning`;
-        if (item.source === 'reasoning_content') extraMeta = 'reasoning_content';
-        else if (item.source === 'reasoning') extraMeta = 'reasoning';
-        bodyHtml = `<pre class="ri-reasoning-body">${highlightHtml(item.text || '', q)}</pre>`;
-    } else if (kind === 'details') {
-        badge = t`Reasoning Details`;
-        extraMeta = `${item.details?.length || 0} entries`;
-        const rows = [];
-        for (const d of (item.details || [])) {
-            const type = d?.type || '?';
-            const id = d?.id ? `<span class="ri-tool-call-id" title="${escapeHtml(d.id)}">${escapeHtml(d.id)}</span>` : '';
-            const format = d?.format ? `<span class="ri-reasoning-detail-format">${escapeHtml(d.format)}</span>` : '';
-            const data = typeof d?.data === 'string' ? d.data : '';
-            const dataRow = data ? `<code class="ri-reasoning-sig">${escapeHtml(data)}</code>` : '';
-            rows.push(`
- <div class="ri-reasoning-detail-row">
- <div class="ri-reasoning-detail-header">
- <span class="ri-reasoning-detail-type">${escapeHtml(type)}</span>
- ${format}
- ${id}
- </div>
- ${dataRow}
- </div>`);
-        }
-        bodyHtml = rows.join('\n') || `<div class="ri-reasoning-empty">${escapeHtml(t`(no entries)`)}</div>`;
-    } else if (kind === 'signature') {
-        badge = t`Signature`;
-        bodyHtml = `<div class="ri-reasoning-sig-row"><code class="ri-reasoning-sig">${escapeHtml(item.signature || '')}</code></div>`;
-    } else {
-        badge = kind;
-        bodyHtml = `<pre class="ri-reasoning-body">${escapeHtml(JSON.stringify(item, null, 2))}</pre>`;
-    }
-
-    const sourceLabel = item.source ? `<span class="ri-reasoning-source">${escapeHtml(item.source)}</span>` : '';
-    const metaLabel = extraMeta ? `<span class="ri-reasoning-meta">${escapeHtml(extraMeta)}</span>` : '';
-    return `
- <details class="ri-reasoning" open>
- <summary class="ri-reasoning-header">
- <span class="ri-reasoning-badge">${escapeHtml(badge)}</span>
- ${sourceLabel}
- ${metaLabel}
- </summary>
- <div class="ri-reasoning-body-wrap">${bodyHtml}</div>
- </details>`;
-}
-
-function renderReasoningItems(items, q) {
-    if (!Array.isArray(items) || !items.length) return '';
-    return items.map(it => renderReasoningItem(it, q)).join('\n');
 }
 
 function formatMessageContent(content) {
@@ -448,7 +326,7 @@ function buildResponseBodyHtml(detail, q) {
             // Server-side extractPartsFromStreamEvents / extractPartsFromPayload
             // emits reasoning parts in the same shape as extractMessageReasoning
             // uses; renderReasoningItem consumes both with no adapter.
-            blocks.push(renderReasoningItem(part, q));
+            blocks.push(renderReasoningItem(part, q, t));
         } else if (part?.type === 'text' && part.text) {
             blocks.push(`<pre class="ri-msg-content ri-response-body">${highlightHtml(part.text, q)}</pre>`);
         }
@@ -464,7 +342,7 @@ function renderMessageItem(msg, index, q) {
     const role = msg?.role || '?';
     const content = formatMessage(msg);
     const reasoningItems = extractMessageReasoning(msg);
-    const reasoningHtml = renderReasoningItems(reasoningItems, q);
+    const reasoningHtml = renderReasoningItems(reasoningItems, q, t);
     const reasoningTextForHit = reasoningItems.map(it => {
         if (it.kind === 'text' || it.kind === 'thinking') return String(it.text || '');
         if (it.kind === 'redacted_thinking') return String(it.data || '');

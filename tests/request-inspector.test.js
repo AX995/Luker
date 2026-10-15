@@ -529,3 +529,155 @@ describe('request-inspector: resolveEffectiveApiKey', () => {
     });
 });
 
+describe('request-inspector: reasoning_details accumulation and dedup', () => {
+    test('streaming merges consecutive reasoning.text fragments and drops the duplicated reasoning string', () => {
+        const req = newRequest('custom');
+        startInspection(req);
+
+        const events = [
+            'data: {"choices":[{"delta":{"reasoning":"Let","reasoning_details":[{"type":"reasoning.text","text":"Let","format":"anthropic-claude-v1","index":0}]}}]}',
+            'data: {"choices":[{"delta":{"reasoning":" me","reasoning_details":[{"type":"reasoning.text","text":" me","format":"anthropic-claude-v1","index":0}]}}]}',
+            'data: {"choices":[{"delta":{"reasoning":" think.","reasoning_details":[{"type":"reasoning.text","text":" think.","signature":"sig-abc","format":"anthropic-claude-v1","index":0}]}}]}',
+        ];
+
+        completeInspectionFromStream(req, events);
+
+        const entry = getEntry(req);
+        expect(entry.responseParts).toEqual([
+            {
+                type: 'reasoning',
+                kind: 'details',
+                details: [{
+                    type: 'reasoning.text',
+                    text: 'Let me think.',
+                    signature: 'sig-abc',
+                    format: 'anthropic-claude-v1',
+                    index: 0,
+                }],
+            },
+        ]);
+    });
+
+    test('streaming keeps the reasoning string when it differs from the details text', () => {
+        const req = newRequest('custom');
+        startInspection(req);
+
+        const events = [
+            'data: {"choices":[{"delta":{"reasoning":"abc","reasoning_details":[{"type":"reasoning.text","text":"ab","format":"anthropic-claude-v1","index":0}]}}]}',
+            'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"X","index":0}]}}]}',
+        ];
+
+        completeInspectionFromStream(req, events);
+
+        const entry = getEntry(req);
+        expect(entry.responseParts).toEqual([
+            { type: 'reasoning', kind: 'text', text: 'abc' },
+            {
+                type: 'reasoning',
+                kind: 'details',
+                details: [{
+                    type: 'reasoning.text',
+                    text: 'abX',
+                    format: 'anthropic-claude-v1',
+                    index: 0,
+                }],
+            },
+        ]);
+    });
+
+    test('streaming keeps same-type runs separate across other types; encrypted entries stay discrete', () => {
+        const req = newRequest('custom');
+        startInspection(req);
+
+        const events = [
+            'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"a","format":"anthropic-claude-v1","index":0},{"type":"reasoning.text","text":"b","index":0},{"type":"reasoning.encrypted","id":"rs_1","data":"blob-1","format":"openai-responses-v1","index":0},{"type":"reasoning.encrypted","id":"rs_2","data":"blob-2","index":0},{"type":"reasoning.text","text":"c","index":0},{"type":"reasoning.summary","summary":"s1","format":"openai-responses-v1","index":0},{"type":"reasoning.summary","summary":"s2","index":0}]}}]}',
+        ];
+
+        completeInspectionFromStream(req, events);
+
+        const entry = getEntry(req);
+        expect(entry.responseParts).toEqual([
+            {
+                type: 'reasoning',
+                kind: 'details',
+                details: [
+                    { type: 'reasoning.text', text: 'ab', format: 'anthropic-claude-v1', index: 0 },
+                    { type: 'reasoning.encrypted', id: 'rs_1', data: 'blob-1', format: 'openai-responses-v1', index: 0 },
+                    { type: 'reasoning.encrypted', id: 'rs_2', data: 'blob-2', index: 0 },
+                    { type: 'reasoning.text', text: 'c', index: 0 },
+                    { type: 'reasoning.summary', summary: 's1s2', format: 'openai-responses-v1', index: 0 },
+                ],
+            },
+        ]);
+    });
+
+    test('streaming keeps a standalone reasoning text part when no details are present', () => {
+        const req = newRequest('custom');
+        startInspection(req);
+
+        completeInspectionFromStream(req, ['data: {"choices":[{"delta":{"reasoning":"plain thought"}}]}']);
+
+        const entry = getEntry(req);
+        expect(entry.responseParts).toEqual([
+            { type: 'reasoning', kind: 'text', text: 'plain thought' },
+        ]);
+    });
+
+    test('non-streaming payload drops the duplicated reasoning string when details carry the same text', () => {
+        const req = newRequest('custom');
+        startInspection(req);
+
+        const payload = {
+            choices: [{
+                message: {
+                    reasoning: 'dup',
+                    reasoning_details: [
+                        { type: 'reasoning.text', text: 'du' },
+                        { type: 'reasoning.text', text: 'p' },
+                    ],
+                },
+            }],
+        };
+
+        completeInspection(req, payload);
+
+        const entry = getEntry(req);
+        expect(entry.responseParts).toEqual([
+            {
+                type: 'reasoning',
+                kind: 'details',
+                details: [
+                    { type: 'reasoning.text', text: 'du' },
+                    { type: 'reasoning.text', text: 'p' },
+                ],
+            },
+        ]);
+    });
+
+    test('non-streaming payload keeps a differing reasoning string alongside details', () => {
+        const req = newRequest('custom');
+        startInspection(req);
+
+        const payload = {
+            choices: [{
+                message: {
+                    reasoning: 'other',
+                    reasoning_details: [{ type: 'reasoning.text', text: 'dup' }],
+                },
+            }],
+        };
+
+        completeInspection(req, payload);
+
+        const entry = getEntry(req);
+        expect(entry.responseParts).toEqual([
+            { type: 'reasoning', kind: 'text', text: 'other' },
+            {
+                type: 'reasoning',
+                kind: 'details',
+                details: [{ type: 'reasoning.text', text: 'dup' }],
+            },
+        ]);
+    });
+});
+

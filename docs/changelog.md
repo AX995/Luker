@@ -18,6 +18,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 
 - Fixed the Inspector showing the stored provider key instead of the key that actually went on the wire when a plugin overrode the auth header through custom include headers.
 - Added a **Tools** section to the request detail that lists the tools sent to the model, each expanding into a parameter table. Tool definitions no longer appear under **Other Params**.
+- Fixed streamed reasoning details rendering one row per fragment with empty bodies in the request and response views; fragments now merge into complete entries showing their text, summary, and signature, and the duplicated plain reasoning block is dropped.
 
 ### Connections & Models
 
@@ -26,6 +27,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Aligned chat-completion sampling, reasoning, and tool parameters with each provider's API: unsupported parameters are hidden and no longer sent, and parameters the API accepts but the UI lacked now have controls.
 - Fixed a timed-out request's retry reusing the same generation id, which made the retry read the previous attempt's buffered error as its own result and left the previous attempt running in parallel.
 - Fixed the deprecated proxy preset migration losing the profile proxy password and leaving migrated profiles to authenticate with the active provider key.
+- Fixed OpenRouter streamed reasoning details accumulating as one fragment per delta instead of merging into complete entries.
 
 ### Storage & Sync
 

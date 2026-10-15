@@ -4,6 +4,7 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { getConfigValue } from './util.js';
+import { joinReasoningDetailsText, mergeReasoningDetails } from '../public/scripts/util/reasoning-details.js';
 
 const RING_BUFFER_SIZE = 200;
 // Completed records are diagnostic snapshots, not durable data — 2h covers
@@ -971,9 +972,8 @@ function extractPartsFromStreamEvents(events, source) {
     // OpenAI / OpenAI-compatible
     let textAccum = '';
     let reasoningTextAccum = '';
-    /** @type {Map<string, object>} keyed by detail.id (fallback ordinal); preserves reasoning_details entries */
-    const reasoningDetails = new Map();
-    const reasoningDetailsOrder = [];
+    /** @type {object[]} reasoning_details merged with the provider's stream semantics */
+    const reasoningDetails = [];
     /** @type {Map<number, {id:string,name:string,argsStr:string}>} */
     const toolCalls = new Map();
     const toolOrder = [];
@@ -986,29 +986,7 @@ function extractPartsFromStreamEvents(events, source) {
         }
         return t;
     };
-    const ingestReasoningDetails = (arr) => {
-        if (!Array.isArray(arr)) return;
-        for (const detail of arr) {
-            if (!detail || typeof detail !== 'object') continue;
-            const key = detail.id != null ? String(detail.id) : `__ordinal_${reasoningDetailsOrder.length}`;
-            if (!reasoningDetails.has(key)) {
-                reasoningDetails.set(key, { ...detail });
-                reasoningDetailsOrder.push(key);
-            } else {
-                // Streamed data payloads arrive fragmented across multiple deltas;
-                // append instead of overwrite. Metadata fields (type/id/format/index)
-                // are same-value across increments — last-write-wins is safe.
-                const existing = reasoningDetails.get(key);
-                for (const [k, v] of Object.entries(detail)) {
-                    if (k === 'data' && typeof v === 'string' && typeof existing.data === 'string') {
-                        existing.data = existing.data + v;
-                    } else {
-                        existing[k] = v;
-                    }
-                }
-            }
-        }
-    };
+    const ingestReasoningDetails = (arr) => mergeReasoningDetails(reasoningDetails, arr);
     for (const ev of events) {
         const raw = normalizeEvent(ev);
         if (!raw || raw === '[DONE]') continue;
@@ -1037,13 +1015,13 @@ function extractPartsFromStreamEvents(events, source) {
     }
 
     const parts = [];
-    if (reasoningTextAccum) parts.push({ type: 'reasoning', kind: 'text', text: reasoningTextAccum });
-    if (reasoningDetailsOrder.length) {
-        parts.push({
-            type: 'reasoning',
-            kind: 'details',
-            details: reasoningDetailsOrder.map(k => reasoningDetails.get(k)),
-        });
+    // Dual-channel streams deliver the same thinking as both `reasoning` and
+    // `reasoning_details`. Keep one copy — the structured entries.
+    const detailsText = joinReasoningDetailsText(reasoningDetails);
+    const reasoningIsDuplicated = reasoningTextAccum && detailsText && reasoningTextAccum === detailsText;
+    if (reasoningTextAccum && !reasoningIsDuplicated) parts.push({ type: 'reasoning', kind: 'text', text: reasoningTextAccum });
+    if (reasoningDetails.length) {
+        parts.push({ type: 'reasoning', kind: 'details', details: reasoningDetails });
     }
     if (textAccum) parts.push({ type: 'text', text: textAccum });
     for (const idx of toolOrder) {
@@ -1193,13 +1171,20 @@ function extractPartsFromPayload(payload, source, rawApiResponse) {
     const choice = payload?.choices?.[0];
     if (choice) {
         const msg = choice?.message || {};
-        if (typeof msg.reasoning_content === 'string' && msg.reasoning_content) {
-            parts.push({ type: 'reasoning', kind: 'text', text: msg.reasoning_content });
-        } else if (typeof msg.reasoning === 'string' && msg.reasoning) {
-            parts.push({ type: 'reasoning', kind: 'text', text: msg.reasoning });
+        const msgDetails = Array.isArray(msg.reasoning_details) && msg.reasoning_details.length
+            ? msg.reasoning_details
+            : null;
+        const msgReasoningText = (typeof msg.reasoning_content === 'string' && msg.reasoning_content)
+            ? msg.reasoning_content
+            : (typeof msg.reasoning === 'string' && msg.reasoning ? msg.reasoning : '');
+        // Dual-channel payloads carry the same thinking twice; keep the
+        // structured entries and drop the duplicated plain string.
+        const msgDetailsText = msgDetails ? joinReasoningDetailsText(msgDetails) : '';
+        if (msgReasoningText && !(msgDetailsText && msgReasoningText === msgDetailsText)) {
+            parts.push({ type: 'reasoning', kind: 'text', text: msgReasoningText });
         }
-        if (Array.isArray(msg.reasoning_details) && msg.reasoning_details.length) {
-            parts.push({ type: 'reasoning', kind: 'details', details: msg.reasoning_details });
+        if (msgDetails) {
+            parts.push({ type: 'reasoning', kind: 'details', details: msgDetails });
         }
         if (Array.isArray(msg.reasoning_blocks) && msg.reasoning_blocks.length) {
             for (const b of msg.reasoning_blocks) {
