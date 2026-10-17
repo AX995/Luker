@@ -466,7 +466,7 @@ describe('dispatchOpenAICompatible', () => {
             expect(wireBody(off).reasoning_format).toBe('hidden');
             expect(wireBody(off).reasoning_effort).toBeUndefined();
 
-            const high = providerCtx(CHAT_COMPLETION_SOURCES.GROQ, { api_key_groq: 'gk' }, { reasoning_effort: 'high' });
+            const high = providerCtx(CHAT_COMPLETION_SOURCES.GROQ, { api_key_groq: 'gk' }, { model: 'qwen/qwen3-32b', reasoning_effort: 'high' });
             await dispatchOpenAICompatible(high);
             expect(wireBody(high).reasoning_effort).toBe('high');
             expect(wireBody(high).reasoning_format).toBeUndefined();
@@ -475,6 +475,17 @@ describe('dispatchOpenAICompatible', () => {
             await dispatchOpenAICompatible(auto);
             expect(wireBody(auto).reasoning_effort).toBeUndefined();
             expect(wireBody(auto).reasoning_format).toBeUndefined();
+        });
+
+        test('GROQ drops reasoning params on models outside the Qwen3 / GPT-OSS families', async () => {
+            const llama = providerCtx(CHAT_COMPLETION_SOURCES.GROQ, { api_key_groq: 'gk' }, { model: 'llama-3.3-70b-versatile', reasoning_effort: 'high' });
+            await dispatchOpenAICompatible(llama);
+            expect(wireBody(llama).reasoning_effort).toBeUndefined();
+
+            const gptOss = providerCtx(CHAT_COMPLETION_SOURCES.GROQ, { api_key_groq: 'gk' }, { model: 'openai/gpt-oss-120b', reasoning_effort: 'off' });
+            await dispatchOpenAICompatible(gptOss);
+            expect(wireBody(gptOss).reasoning_format).toBeUndefined();
+            expect(wireBody(gptOss).reasoning_effort).toBeUndefined();
         });
     });
 

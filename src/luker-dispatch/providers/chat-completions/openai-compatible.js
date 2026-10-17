@@ -408,13 +408,12 @@ async function resolveGroq(ctx) {
     // models reject a non-default value with a 400. GPT-OSS does not support
     // reasoning_format, so it is only used to hide reasoning elsewhere.
     const isGroqGptOss = /gpt-oss/i.test(body.model);
-    if (/qwen3|gpt-oss/i.test(body.model)) {
-        const groqToken = normalizeReasoningToken(body.reasoning_effort);
-        if (groqToken === 'off') {
-            if (!isGroqGptOss) bodyParams.reasoning_format = 'hidden';
-        } else if (groqToken !== 'auto') {
-            bodyParams.reasoning_effort = groqToken;
-        }
+    const groqSupportsEffort = /qwen3|gpt-oss/i.test(body.model);
+    const groqToken = normalizeReasoningToken(body.reasoning_effort);
+    if (groqToken === 'off') {
+        if (!isGroqGptOss) bodyParams.reasoning_format = 'hidden';
+    } else if (groqToken !== 'auto' && groqSupportsEffort) {
+        bodyParams.reasoning_effort = groqToken;
     }
     if (body.json_schema) {
         bodyParams.response_format = {
