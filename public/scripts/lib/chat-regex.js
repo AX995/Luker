@@ -21,12 +21,11 @@
  * Generate().
  *
  * Plugin-channel semantics:
- *   The plugin channel is directional. Rules scoped to `pluginOnly` +
- *   `promptOnly` cook text going INTO a plugin request (floors,
- *   plugin-composed messages, world info). Rules scoped to `pluginOnly`
- *   without `promptOnly` cook the assistant text a plugin request
- *   RETURNS. Main-pipeline-only rules (promptOnly without pluginOnly)
- *   never enter the channel.
+ *   `pluginOnly` is an independent channel. Such rules cook both the
+ *   text going INTO a plugin request (floors, plugin-composed messages,
+ *   world info) and the assistant text a plugin request RETURNS. The two
+ *   directions are disjoint, so one rule never fires twice on the same
+ *   text. Rules without `pluginOnly` never enter the channel.
  *
  * Regex engine access:
  *   We consume the regex primitives through `Luker.getContext().regex`
@@ -102,21 +101,19 @@ export function computeDepthsFromEnd(messages) {
 /**
  * Apply the plugin channel's OUTPUT-direction regex pass to
  * agent-produced text. A rule participates when it is scoped to the
- * plugin channel (`pluginOnly`) and NOT to the prompt direction
- * (`promptOnly` absent) — the "Alter Plugin Messages" box without
- * "Alter Outgoing Prompt".
+ * plugin channel (`pluginOnly`) — the "Plugin Messages" box, with
+ * or without "Alter Outgoing Prompt".
  *
  * This is the response-side counterpart of the request-side lane
  * (`lib/plugin-floors.js` / `applyPluginLaneRegex`): the request side
- * cooks text going INTO a plugin request (`pluginOnly` + `promptOnly`),
- * this cooks the assistant text a plugin request RETURNS. The two
- * directions are disjoint, so one rule never fires twice on the same
- * text.
+ * cooks text going INTO a plugin request, this cooks the assistant text
+ * a plugin request RETURNS. The two directions are disjoint, so one rule
+ * never fires twice on the same text.
  *
  * Placement is fixed to AI_OUTPUT (a response is by definition the
- * agent's own output). `isPrompt` is deliberately NOT set:
- * main-pipeline-only rules never enter the plugin channel. `depth` is
- * `undefined` (responses don't sit at a stable chat depth).
+ * agent's own output). `isPrompt` is deliberately NOT set: rules without
+ * `pluginOnly` never enter the plugin channel. `depth` is `undefined`
+ * (responses don't sit at a stable chat depth).
  *
  * Returns raw text when the regex API isn't reachable (bare unit tests
  * without a Luker stub) so callers degrade gracefully.

@@ -851,11 +851,12 @@ export function getRegexedString(rawString, placement, { characterOverride, isMa
             // Script applies to Markdown and input is Markdown
             (script.markdownOnly && isMarkdown) ||
             // Script applies to the main outgoing prompt and input is that prompt
-            (script.promptOnly && !script.pluginOnly && isPrompt) ||
-            // Plugin lane, input direction: promptOnly rules cook text going into a plugin request
-            (script.pluginOnly && script.promptOnly && isPluginInput) ||
-            // Plugin lane, output direction: rules without promptOnly cook the plugin response text
-            (script.pluginOnly && !script.promptOnly && isPluginOutput);
+            (script.promptOnly && isPrompt) ||
+            // Plugin lane: pluginOnly rules cook both the text going into a
+            // plugin request and the assistant text a plugin request returns.
+            // The two directions are disjoint streams, so one rule never
+            // fires twice on the same text.
+            (script.pluginOnly && (isPluginInput || isPluginOutput));
 
         if ((hasScopedTarget && matchesScopedTarget) ||
             // Script applies to the persisted chat content only when no scoped target is enabled.

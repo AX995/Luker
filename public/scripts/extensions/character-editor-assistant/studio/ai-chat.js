@@ -395,7 +395,7 @@ function buildTools() {
                         disabled: { type: 'boolean', description: 'Disabled scripts are skipped. Default false.' },
                         markdownOnly: { type: 'boolean', description: 'Apply only when rendering text to the chat UI (display-time). Use this to hide/clean things visually WITHOUT changing the stored message or what the AI sees on next prompt assembly. Default false.' },
                         promptOnly: { type: 'boolean', description: 'Apply only when assembling the prompt sent to the AI. Use this to clean up or strip noise BEFORE the AI sees previous messages, without altering the stored chat or what the user sees in the UI. Default false.' },
-                        pluginOnly: { type: 'boolean', description: 'Apply only to plugin-built prompt fragments (e.g. memory-graph injections, custom prompt builders). Most authoring use cases leave this false.' },
+                        pluginOnly: { type: 'boolean', description: 'Apply to plugin requests: the text going into a plugin-built request (e.g. memory-graph injections, custom prompt builders) and the assistant text such a request returns. Most authoring use cases leave this false.' },
                         runOnEdit: { type: 'boolean', description: 'Re-apply when the user edits a stored message. Off (default) means manual edits keep the original text. Turn on for cleanup-style scripts that should normalize edits too.' },
                         substituteRegex: { type: 'number', description: 'Macro substitution mode for findRegex itself. 0=NONE (regex used as-is), 1=RAW (substitute {{user}} etc. into the regex text raw), 2=ESCAPED (substitute then regex-escape special chars so the result is literal). Default 0.' },
                         minDepth: { type: 'number', description: 'Minimum chat depth for the script to fire (0=most recent message). Null/omit = no lower bound. Use to e.g. only run on older messages.' },
@@ -2287,7 +2287,7 @@ Pick by intent:
 - **Both — clean both views, keep raw on disk** → both flags true. Useful when the stored chat should remain pristine for export, but neither display nor prompt should show the marker.
 - **Permanent rewrite** → no flags. Modifies the stored message itself; both user and AI see the new text on every future read. Use sparingly — destructive on persistent chat, not reversible without backup.
 
-\`pluginOnly: true\` narrows further to plugin-built prompt fragments (memory-graph injections, custom prompt builders). Most authoring use cases ignore it.
+\`pluginOnly: true\` selects plugin requests: it rewrites both the text going into a plugin-built request (memory-graph injections, custom prompt builders) and the assistant text such a request returns. It is independent of the display and prompt flags. Most authoring use cases ignore it.
 
 ### Other knobs that come up
 

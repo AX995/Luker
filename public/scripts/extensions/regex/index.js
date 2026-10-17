@@ -1397,27 +1397,12 @@ async function onRegexEditorOpenClick(existingId, scriptType) {
             .prop('checked', true);
     }
 
-    function syncPluginScopeUi() {
-        // The plugin channel and the display lane are mutually exclusive:
-        // a pluginOnly rule never alters chat display, so the display
-        // checkbox is disabled and cleared while pluginOnly is on.
-        const pluginChecked = Boolean(editorHtml.find('input[name="only_format_plugin"]').prop('checked'));
-        const $display = editorHtml.find('input[name="only_format_display"]');
-        $display.prop('disabled', pluginChecked);
-        if (pluginChecked) {
-            $display.prop('checked', false);
-        }
-    }
-
     editorHtml.find('input[name="only_format_plugin"]').on('click input change', function (event) {
         logEditorState('plugin_only_toggled', {
             eventType: event.type,
             inputChecked: Boolean($(this).prop('checked')),
         });
-        syncPluginScopeUi();
     });
-
-    syncPluginScopeUi();
 
     editorHtml.find('#regex_test_mode_toggle').on('click', function () {
         editorHtml.find('#regex_test_mode').toggleClass('displayNone');

@@ -60,7 +60,7 @@ context.generateTask({
 }>
 ```
 
-`assistantText` is post-processed by the plugin channel's output-direction regex pass before `generateTask` resolves: rules scoped to **Alter Plugin Messages** without **Alter Outgoing Prompt** rewrite the returned text in place. Tool call payloads are never rewritten. See [Regex Rule Scope](/features/regex-scope).
+`assistantText` is post-processed before `generateTask` resolves: rules scoped to **Plugin Messages** rewrite the returned text in place. See [Regex Rule Scope](/features/regex-scope).
 
 ### `worldInfoSource` modes
 

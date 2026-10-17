@@ -1071,7 +1071,7 @@ export function createSubagentDispatcher({
                         // The sub-agent's terminal text is already cooked:
                         // `generateTask`/`generateTaskStream` apply the
                         // plugin channel's OUTPUT-direction regex pass
-                        // (pluginOnly without promptOnly) to the returned
+                        // (pluginOnly) to the returned
                         // assistant text. A sub-agent's report therefore
                         // reaches the parent through the
                         // `await_subagents` tool_result envelope scrubbed

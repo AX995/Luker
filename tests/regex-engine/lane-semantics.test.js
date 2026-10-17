@@ -2,14 +2,19 @@
  * Lane-semantics matrix for getRegexedString.
  *
  * Contract:
- *   - `isPrompt` lane applies promptOnly scripts without pluginOnly
- *     (main generation pipeline).
- *   - `isPluginInput` lane applies dual-scope scripts (pluginOnly AND
- *     promptOnly): text going INTO a plugin request.
- *   - `isPluginOutput` lane applies pluginOnly scripts WITHOUT
- *     promptOnly: the assistant text a plugin request returns.
- *   - The plugin channel is directional, so a dual-scope script hits the
- *     plugin input lane only — never the main lane, never the output lane.
+ *   - The three scope flags are independent channel switches. None of
+ *     them changes the meaning of another.
+ *   - `isPrompt` lane applies promptOnly scripts (main generation
+ *     pipeline), whether or not pluginOnly is also set.
+ *   - `isMarkdown` lane applies markdownOnly scripts (chat display),
+ *     whether or not pluginOnly is also set.
+ *   - `isPluginInput` lane applies pluginOnly scripts: text going INTO
+ *     a plugin request.
+ *   - `isPluginOutput` lane applies pluginOnly scripts: the assistant
+ *     text a plugin request returns.
+ *   - A pluginOnly script therefore hits both plugin directions; the
+ *     directions are disjoint text streams, so it never fires twice on
+ *     the same text.
  *   - Depth filtering only runs when a numeric depth is passed.
  *   - A script with no scope flags matches only the unscoped lane
  *     (!isMarkdown && !isPrompt && !isPluginInput && !isPluginOutput).
@@ -66,6 +71,18 @@ const extensionSettings = {
             maxDepth: null,
         },
         {
+            id: 'script-display-and-plugin',
+            scriptName: 'Display and plugin rule',
+            findRegex: '/DISPLAYPLUGIN/g',
+            replaceString: 'twolanes',
+            placement: [1, 2],
+            disabled: false,
+            markdownOnly: true,
+            pluginOnly: true,
+            minDepth: null,
+            maxDepth: null,
+        },
+        {
             id: 'script-unscoped',
             scriptName: 'Unscoped rule',
             findRegex: '/UNSCOPED/g',
@@ -113,25 +130,33 @@ beforeAll(async () => {
 const PLACEMENT = 1;
 
 describe('getRegexedString lane semantics', () => {
-    test('isPrompt lane applies promptOnly-only but not pluginOnly or dual-scope', () => {
+    test('isPrompt lane applies promptOnly scripts, including dual-scope ones', () => {
         const out = getRegexedString('x MAINONLY y PLUGINONLY z DUAL w UNSCOPED', PLACEMENT, { isPrompt: true, depth: 9 });
-        expect(out).toBe('x main y PLUGINONLY z DUAL w UNSCOPED');
+        expect(out).toBe('x main y PLUGINONLY z both w UNSCOPED');
     });
 
-    test('isPluginInput lane applies dual-scope (pluginOnly+promptOnly) but not pluginOnly-only', () => {
+    test('isPluginInput lane applies pluginOnly scripts, including dual-scope ones', () => {
         const out = getRegexedString('x MAINONLY y PLUGINONLY z DUAL w UNSCOPED', PLACEMENT, { isPluginInput: true, depth: 9 });
-        expect(out).toBe('x MAINONLY y PLUGINONLY z both w UNSCOPED');
+        expect(out).toBe('x MAINONLY y plugin z both w UNSCOPED');
     });
 
-    test('isPluginOutput lane applies pluginOnly-only but not dual-scope', () => {
+    test('isPluginOutput lane applies pluginOnly scripts, including dual-scope ones', () => {
         const out = getRegexedString('x MAINONLY y PLUGINONLY z DUAL w UNSCOPED', PLACEMENT, { isPluginOutput: true, depth: 9 });
-        expect(out).toBe('x MAINONLY y plugin z DUAL w UNSCOPED');
+        expect(out).toBe('x MAINONLY y plugin z both w UNSCOPED');
     });
 
-    test('dual-scope script hits the plugin input lane only', () => {
-        expect(getRegexedString('DUAL', PLACEMENT, { isPrompt: true, depth: 0 })).toBe('DUAL');
+    test('markdownOnly and pluginOnly on one script hit the display lane and both plugin lanes', () => {
+        expect(getRegexedString('DISPLAYPLUGIN', PLACEMENT, { isMarkdown: true })).toBe('twolanes');
+        expect(getRegexedString('DISPLAYPLUGIN', PLACEMENT, { isPluginInput: true, depth: 0 })).toBe('twolanes');
+        expect(getRegexedString('DISPLAYPLUGIN', PLACEMENT, { isPluginOutput: true, depth: 0 })).toBe('twolanes');
+        // No promptOnly flag, so the main pipeline stays untouched.
+        expect(getRegexedString('DISPLAYPLUGIN', PLACEMENT, { isPrompt: true, depth: 0 })).toBe('DISPLAYPLUGIN');
+    });
+
+    test('promptOnly and pluginOnly on one script hit the main lane and both plugin lanes', () => {
+        expect(getRegexedString('DUAL', PLACEMENT, { isPrompt: true, depth: 0 })).toBe('both');
         expect(getRegexedString('DUAL', PLACEMENT, { isPluginInput: true, depth: 0 })).toBe('both');
-        expect(getRegexedString('DUAL', PLACEMENT, { isPluginOutput: true, depth: 0 })).toBe('DUAL');
+        expect(getRegexedString('DUAL', PLACEMENT, { isPluginOutput: true, depth: 0 })).toBe('both');
     });
 
     test('depth=undefined skips minDepth/maxDepth filtering (undepthed plugin output message still matches)', () => {

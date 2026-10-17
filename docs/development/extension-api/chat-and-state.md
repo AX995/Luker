@@ -23,7 +23,7 @@ The following properties provide read-only access to the current chat:
 Plugins that drive their own LLM requests (orchestrator agents, memory-graph curation, iteration rebuilds, ...) need the chat history as prompt messages. Do not traverse `context.chat` manually:
 
 - **Depth computation is error-prone.** Regex scripts authored with `minDepth` / `maxDepth` expect depth counted from the end of the usable chat (system floors skipped). Ad-hoc traversals usually derive depth from array position — a different number.
-- **Raw `.mes` skips regex.** The main generation pipeline cooks every floor through the user's regex scripts before the text reaches the model. An ad-hoc traversal feeds raw text to the agents while the main chat shows rewritten text.
+- **Raw `.mes` skips regex.** The main chat cooks every floor through the user's regex scripts before the text reaches the model. An ad-hoc traversal feeds raw text to the agents while the display shows rewritten text.
 
 ### readPluginFloors
 
@@ -37,9 +37,9 @@ context.readPluginFloors(options?: {
 }): FloorRecord[]
 ```
 
-Reads the current chat as prompt-ready floor records. Walks `context.chat` exactly once and routes every floor through the plugin regex lane with real depth-from-end, so a script's `maxDepth` means the same thing here as it does in the main pipeline.
+Reads the current chat as prompt-ready floor records. Walks `context.chat` exactly once and routes every floor through the plugin regex pass with real depth-from-end, so a script's `maxDepth` means the same thing here as it does in the main chat.
 
-Filters narrow which records come back; every returned record always carries all fields below. The default role whitelist excludes system floors, matching how the main pipeline treats them. Pass `roles: ['user', 'assistant', 'system']` to re-include them — such records have `depth: undefined` because system floors sit outside the depth numbering.
+Filters narrow which records come back; every returned record always carries all fields below. The default role whitelist excludes system floors, matching how the main chat treats them. Pass `roles: ['user', 'assistant', 'system']` to re-include them — such records have `depth: undefined` because system floors sit outside the depth numbering.
 
 | Field | Type | Description |
 |------|------|------|
@@ -49,7 +49,7 @@ Filters narrow which records come back; every returned record always carries all
 | `is_user` | `boolean` | Whether the floor was written by the user |
 | `is_system` | `boolean` | Whether the floor is a system message |
 | `mesRaw` | `string` | Raw `.mes` text, untouched |
-| `mesCooked` | `string` | Text after the plugin regex lane |
+| `mesCooked` | `string` | Text after the plugin regex pass |
 
 `mesCooked` is the field to use in most cases: placement follows authorship (`is_user` → user input rules, otherwise AI output rules) and plugin-scoped regex scripts apply at read time with the floor's real chat depth.
 
@@ -97,12 +97,14 @@ No action is required on the response side either: the assistant text a plugin r
 
 ### Which regex rules apply where
 
-Rule scope is split between the lanes, and the plugin lane is directional:
+The scope flags are independent, and each one selects one place a rule is applied:
 
-- `promptOnly` rules apply to the main generation pipeline's outgoing prompt. Adding `pluginOnly` moves the rule into the plugin lane and selects its input direction.
-- `pluginOnly` rules apply to the plugin lane. With `promptOnly`, they rewrite text going into a plugin request (floor text, plugin-composed messages, world info). Without `promptOnly`, they rewrite the assistant text a plugin request returns.
-- Tool call payloads are never touched by any of these passes.
-- A rule with neither flag touches neither lane — it rewrites the stored chat history itself, and is applied when messages are edited or saved.
+- `promptOnly` rules apply to the main chat's outgoing prompt. `pluginOnly` does not add this pass.
+- `markdownOnly` rules apply to the chat display. `pluginOnly` does not add this pass.
+- `pluginOnly` rules apply to plugin requests, covering both the request and the reply: text going into a plugin request — floor text, plugin-composed messages, world info — and the assistant text a plugin request returns. The two are separate text streams, so a rule never fires twice on the same text.
+- A rule with no scope flag touches none of these — it rewrites the stored chat history itself, and is applied when messages are edited or saved.
+
+Several flags may be combined on one rule; each one adds only its own pass.
 
 For the user-facing picture, see [Regex rule scope](/features/regex-scope).
 

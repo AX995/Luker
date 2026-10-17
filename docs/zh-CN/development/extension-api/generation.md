@@ -60,7 +60,7 @@ context.generateTask({
 }>
 ```
 
-`assistantText` 在 `generateTask` resolve 之前会经过插件通道的输出方向正则处理：勾选「仅对插件消息生效」而未勾选「仅格式提示词」的规则会就地改写返回的文本。工具调用内容从不被改写。详见[正则规则作用范围](/zh-CN/features/regex-scope)。
+`assistantText` 在 `generateTask` resolve 之前会经过正则处理：勾选「插件消息」的规则会就地改写返回的文本。详见[正则规则作用范围](/zh-CN/features/regex-scope)。
 
 ### `worldInfoSource` 模式
 
