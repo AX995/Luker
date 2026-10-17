@@ -133,6 +133,16 @@ async function fillGraphViaUi(page) {
     await page.locator('#luker_rpg_memory_fill').click();
 }
 
+// Memory Graph issues more than one request shape: the extraction pass, and —
+// when `extractMode` is `crawl` — a bounded exploration pass ahead of it. Both
+// are plugin requests, so neither belongs to the main-lane bucket. The crawl
+// pass carries `luker_rpg_extract_crawl_*` tools instead of the extraction
+// tools, so matching the `luker_rpg_extract_` prefix covers both.
+function isMemoryGraphBody(body) {
+    return Array.isArray(body?.tools)
+        && body.tools.some(t => String(t?.function?.name || '').startsWith('luker_rpg_extract_'));
+}
+
 function isExtractionBody(body) {
     return Array.isArray(body?.tools)
         && body.tools.some(t => t?.function?.name === 'luker_rpg_extract_event_create');
@@ -181,7 +191,7 @@ test.describe('#66 — plugin lane applied exactly once, lanes never bleed', () 
             .filter(r => r.url.endsWith('/chat/completions'))
             .map(r => r.body);
         const extractionBodies = chatBodies.filter(isExtractionBody);
-        const mainGenBodies = chatBodies.filter(b => !isExtractionBody(b));
+        const mainGenBodies = chatBodies.filter(b => !isMemoryGraphBody(b));
         expect(mainGenBodies.length, 'the two turns must produce main-generation requests').toBeGreaterThanOrEqual(1);
         expect(extractionBodies.length, 'Fill Graph must fire at least one extraction request').toBeGreaterThanOrEqual(1);
 
