@@ -130,7 +130,8 @@ export function renderReasoningItem(item, q, t) {
         bodyHtml = `<pre class="ri-reasoning-body">${highlightHtml(item.text || '', q)}</pre>`;
     } else if (kind === 'details') {
         badge = t`Reasoning Details`;
-        extraMeta = `${item.details?.length || 0} entries`;
+        const entryCount = item.details?.length || 0;
+        extraMeta = `${entryCount} ${entryCount === 1 ? t`entry` : t`entries`}`;
         const rows = [];
         for (const d of (item.details || [])) {
             const type = d?.type || '?';

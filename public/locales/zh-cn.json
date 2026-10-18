@@ -4034,6 +4034,7 @@
     "Recursion source preview": "递归来源预览",
     "Recursion source explanation": "递归来源说明",
     "This entry was activated indirectly by recursive expansion from the source entries below, not by a direct keyword hit in this single worldbook.": "该条目是被下方来源条目递归带入激活的，不是仅靠当前世界书内的直接关键词命中。",
+    "entry": "条",
     "entries": "条",
     "more": "更多",
     "more groups": "更多分组",
