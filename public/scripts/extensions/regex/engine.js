@@ -282,12 +282,28 @@ function normalizeManagedRuntimeRegexScript(script, ownerId) {
         ...script,
         id: scriptId,
         scriptName,
+        trimStrings: normalizeRuntimeTrimStrings(script.trimStrings),
     };
+}
+
+/**
+ * Normalizes `trimStrings` for scripts handed in at runtime.
+ *
+ * The regex editor is the only writer that guarantees the field exists.
+ * Runtime scripts bypass it, and the engine reads the value directly as
+ * soon as a replacement references a capture group.
+ *
+ * @param {unknown} trimStrings The trim strings to normalize
+ * @returns {string[]} The normalized trim strings
+ */
+function normalizeRuntimeTrimStrings(trimStrings) {
+    return Array.isArray(trimStrings) ? trimStrings.map(String) : [];
 }
 
 /**
  * Creates and registers a managed runtime regex provider backed by engine-owned script storage.
  * This is useful for plugins that want `upsert/remove/set/clear` semantics instead of a pure callback provider.
+ * Each script must include a non-empty `id` and `scriptName`. `trimStrings` is filled with an empty list when omitted.
  *
  * @param {string} owner Unique owner id, usually plugin/module name
  * @param {RuntimeRegexProviderOptions} [options] Provider options
@@ -461,7 +477,8 @@ export class RegexProvider {
 /**
  * Registers an in-memory runtime regex provider.
  * Providers are evaluated on each getRegexScripts() call and are never persisted.
- * Each returned script must include a non-empty `scriptName`.
+ * Each returned script must include a non-empty `scriptName`. `trimStrings` is
+ * filled with an empty list when omitted.
  *
  * @param {string} owner Unique owner id, usually plugin/module name
  * @param {(options?: GetRegexScriptsOptions) => RegexScript[] | null | undefined} provider Script provider callback
@@ -532,7 +549,7 @@ function collectRuntimeRegexScripts(options = DEFAULT_GET_REGEX_SCRIPTS_OPTIONS)
                     console.warn(`collectRuntimeRegexScripts: provider "${owner}" returned a script without scriptName; skipped.`);
                     continue;
                 }
-                scripts.push({ ...script, scriptName, __runtime_owner: owner });
+                scripts.push({ ...script, scriptName, trimStrings: normalizeRuntimeTrimStrings(script.trimStrings), __runtime_owner: owner });
             }
         } catch (error) {
             console.error(`collectRuntimeRegexScripts: provider "${owner}" failed`, error);
