@@ -105,6 +105,7 @@ import {
     cloneJsonValue,
     invalidateChatWriteSnapshot,
     isChatTransitionInProgress,
+    maybeApplyCharacterBoundPreset,
 } from '../script.js';
 import { settleChatChanged } from './floor-state.js';
 import { printTagList, createTagMapFromList, applyTagsOnCharacterSelect, tag_map, applyTagsOnGroupSelect, printTagFilters, tag_filter_type } from './tags.js';
@@ -311,6 +312,11 @@ export async function getGroupChat(groupId, reload = false) {
     }
 
     await loadItemizedPrompts(getCurrentChatId());
+
+    // The display lane resolves preset-scoped regex rules while rendering, so a
+    // card-bound preset left over from a character chat has to be restored
+    // before this render. The CHAT_CHANGED handler that does it runs after.
+    await maybeApplyCharacterBoundPreset();
 
     if (group && Array.isArray(group.members) && freshChat) {
         chat.splice(0, chat.length);

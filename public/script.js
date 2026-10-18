@@ -124,6 +124,7 @@ import {
     selected_proxy,
     bindCurrentChatCompletionPresetToCharacter,
     clearCharacterBoundChatCompletionPreset,
+    maybeApplyCharacterBoundPreset,
     initOpenAI,
 } from './scripts/openai.js';
 
@@ -395,6 +396,9 @@ export {
     getSystemMessageByType,
     event_types,
     eventSource,
+    // Settles the card-bound chat-completion preset. Exported for the chat-open
+    // paths that render before the CHAT_CHANGED handler applies it.
+    maybeApplyCharacterBoundPreset,
     /** @deprecated Use setCharacterSettingsOverrides instead. */
     setCharacterSettingsOverrides as setScenarioOverride,
     /** @deprecated Use appendMediaToMessage instead. */
@@ -4041,6 +4045,9 @@ export async function reloadCurrentChatUnsafe() {
         resetChatState();
         restoreNeutralChat();
         await getCharacters();
+        // Restore the previous preset before the display lane resolves
+        // preset-scoped regex rules.
+        await maybeApplyCharacterBoundPreset();
         await printMessages();
         await settleChatChanged();
         await eventSource.emit(event_types.CHAT_CHANGED, getCurrentChatId());
@@ -15173,6 +15180,10 @@ async function getChatResult() {
     }
 
     await loadItemizedPrompts(getCurrentChatId());
+    // The display lane resolves preset-scoped regex rules while printing, so
+    // the card-bound preset has to be in effect before this render. The
+    // CHAT_CHANGED handler that applies it runs after printMessages.
+    await maybeApplyCharacterBoundPreset();
     await printMessages();
     select_selected_character(this_chid);
 
@@ -19630,6 +19641,9 @@ async function removeCharacterFromUI() {
     $(document.getElementById('rm_button_selected_ch')).children('h2').text('');
     restoreNeutralChat();
     await getCharacters();
+    // Restore the previous preset before the display lane resolves
+    // preset-scoped regex rules.
+    await maybeApplyCharacterBoundPreset();
     await printMessages();
     saveSettingsDebounced();
     await settleChatChanged();
