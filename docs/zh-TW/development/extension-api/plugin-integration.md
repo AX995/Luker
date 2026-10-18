@@ -4,7 +4,36 @@
 
 ## 正則執行時 API
 
-外掛可以透過 `registerManagedRegexProvider()` 註冊託管的正則處理器，參與 Luker 的正則處理流程。該函數從正則引擎模組匯出：
+外掛可以註冊只存在於記憶體中的正則規則。這些規則和使用者自己的規則一起參與每一次正則處理，不會寫入使用者的正則清單。正則引擎模組匯出兩個註冊函式。
+
+### registerRegexProvider
+
+規則集合由目前狀態推導，需要隨時重新計算時使用。回呼在每次正則處理時執行，因此總能讀到目前的聊天、角色與設定。
+
+```js
+import { registerRegexProvider } from '../../extensions/regex/engine.js';
+
+const registration = registerRegexProvider('my-plugin', () => [
+  {
+    id: 'my-rule-1',
+    scriptName: 'My Regex Rule',
+    findRegex: '/foo/g',
+    replaceString: 'bar',
+    trimStrings: [],
+    placement: [1, 2],
+  },
+]);
+
+// 重新計算會自動進行。refresh() 還會重新載入已渲染的聊天。
+registration.refresh({ requestReload: true });
+
+// 卸載
+registration.unregister();
+```
+
+### registerManagedRegexProvider
+
+希望由引擎保管腳本儲存時使用。回傳的句柄管理該外掛的一組腳本。
 
 ```js
 import { registerManagedRegexProvider } from '../../extensions/regex/engine.js';
@@ -13,20 +42,42 @@ const handle = registerManagedRegexProvider('my-plugin', {
   reloadOnChange: true,
 });
 
-// 添加正則腳本
 handle.upsertScript({
   id: 'my-rule-1',
   scriptName: 'My Regex Rule',
-  findRegex: 'foo',
+  findRegex: '/foo/g',
   replaceString: 'bar',
-  // ...其他正則腳本欄位
+  trimStrings: [],
+  placement: [1, 2],
 });
+handle.setScripts([ /* 整組替換 */ ]);
+handle.removeScript('my-rule-1');
+handle.clearScripts();
 
-// 卸載時取消註冊
+// 卸載
 handle.unregister();
 ```
 
-`registerManagedRegexProvider` 回傳的句柄提供 `upsertScript`、`removeScript`、`setScripts`、`clearScripts` 和 `unregister` 方法。
+### 腳本欄位
+
+| 欄位 | 型別 | 必填 | 說明 |
+|------|------|------|------|
+| `id` | string | 僅託管入口 | 穩定識別碼，`registerManagedRegexProvider` 以它作為儲存鍵 |
+| `scriptName` | string | 是 | 顯示名稱，出現在正則編輯器的「外掛正則腳本」分組 |
+| `findRegex` | string | 是 | `/pattern/flags` 形式的匹配式 |
+| `replaceString` | string | 是 | 替換文字，`$1` 與 `$<name>` 引用捕獲組 |
+| `trimStrings` | string[] | 否 | 替換前從每個捕獲組移除的字串，預設為空清單 |
+| `placement` | number[] | 是 | 「影響條目」，`1` 是使用者輸入，`2` 是 AI 輸出 |
+| `disabled` | boolean | 否 | 為 true 時略過該規則 |
+| `markdownOnly` | boolean | 否 | 「僅修改聊天顯示」，規則改寫聊天介面顯示的內容 |
+| `promptOnly` | boolean | 否 | 「僅修改系統提示詞」，規則改寫主聊天傳送給模型的提示詞 |
+| `pluginOnly` | boolean | 否 | 「插件訊息」，規則處理外掛請求的往來文字 |
+| `runOnEdit` | boolean | 否 | 編輯訊息時也執行 |
+| `substituteRegex` | number | 否 | `findRegex` 的巨集替換模式，`0` 表示不替換 |
+| `minDepth` | number \| null | 否 | 「最小深度」，只處理深度不小於該值的訊息，深度 0 是最新一則 |
+| `maxDepth` | number \| null | 否 | 「最大深度」，只處理深度不大於該值的訊息 |
+
+三個標記互相獨立，規則會套用到每個已開啟標記對應的文字；執行時腳本在全部持久化規則之後執行。
 
 ## 搜尋工具 API
 

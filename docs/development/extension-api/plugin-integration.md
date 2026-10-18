@@ -4,7 +4,36 @@ APIs that connect plugins to Luker's pipelines and to each other: regex processi
 
 ## Regex Runtime API
 
-Plugins can register managed regex processors via `registerManagedRegexProvider()` to participate in Luker's regex processing pipeline. This function is exported from the regex engine module:
+Plugins can register regex rules that live only in memory. They take part in every regex pass alongside the user's own rules and are never written to the user's regex list. The regex engine module exports two registration functions.
+
+### registerRegexProvider
+
+Use this when the rule set is derived from current state and should be recomputed on demand. The callback runs on every regex pass, so it always sees the current chat, character, and settings.
+
+```js
+import { registerRegexProvider } from '../../extensions/regex/engine.js';
+
+const registration = registerRegexProvider('my-plugin', () => [
+  {
+    id: 'my-rule-1',
+    scriptName: 'My Regex Rule',
+    findRegex: '/foo/g',
+    replaceString: 'bar',
+    trimStrings: [],
+    placement: [1, 2],
+  },
+]);
+
+// Recomputation is automatic. refresh() also reloads already rendered chats.
+registration.refresh({ requestReload: true });
+
+// Teardown
+registration.unregister();
+```
+
+### registerManagedRegexProvider
+
+Use this when the engine should own the script storage. The returned handle manages one script set per plugin.
 
 ```js
 import { registerManagedRegexProvider } from '../../extensions/regex/engine.js';
@@ -13,20 +42,42 @@ const handle = registerManagedRegexProvider('my-plugin', {
   reloadOnChange: true,
 });
 
-// Add a regex script
 handle.upsertScript({
   id: 'my-rule-1',
   scriptName: 'My Regex Rule',
-  findRegex: 'foo',
+  findRegex: '/foo/g',
   replaceString: 'bar',
-  // ...other regex script fields
+  trimStrings: [],
+  placement: [1, 2],
 });
+handle.setScripts([ /* full replacement */ ]);
+handle.removeScript('my-rule-1');
+handle.clearScripts();
 
-// Unregister on teardown
+// Teardown
 handle.unregister();
 ```
 
-The handle returned by `registerManagedRegexProvider` provides `upsertScript`, `removeScript`, `setScripts`, `clearScripts`, and `unregister` methods.
+### Script fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Managed entry only | Stable identifier. `registerManagedRegexProvider` keys its storage by this value. |
+| `scriptName` | string | Yes | Display name shown in the regex editor's plugin section. |
+| `findRegex` | string | Yes | Pattern in `/pattern/flags` form. |
+| `replaceString` | string | Yes | Replacement text. `$1` and `$<name>` reference capture groups. |
+| `trimStrings` | string[] | No | Strings removed from each captured group before substitution. Defaults to an empty list. |
+| `placement` | number[] | Yes | Where the rule applies. `1` is user input, `2` is AI output. |
+| `disabled` | boolean | No | Skips the rule when true. |
+| `markdownOnly` | boolean | No | Applies the rule to rendered chat text. |
+| `promptOnly` | boolean | No | Applies the rule to outgoing prompts. |
+| `pluginOnly` | boolean | No | Applies the rule to text sent to plugin requests and returned from them. |
+| `runOnEdit` | boolean | No | Runs the rule when a message is edited. |
+| `substituteRegex` | number | No | Macro substitution mode for `findRegex`. `0` disables substitution. |
+| `minDepth` | number \| null | No | Applies the rule only when the message depth is at least this value. Depth 0 is the newest message. |
+| `maxDepth` | number \| null | No | Applies the rule only when the message depth is at most this value. |
+
+The three scope flags are independent. A rule runs on every channel whose flag is set, and runtime scripts run after the persisted rules of every scope.
 
 ## Search Tools API
 
