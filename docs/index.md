@@ -29,7 +29,7 @@ features:
   - icon: 🔍
     title: Search Tools
     details: Characters can look things up mid-conversation through the provider configured in the Search Tools plugin — as a tool the model calls when it needs one, or as a pre-request agent that writes findings into world info.
-  - icon: 📱
-    title: Android App
-    details: The entire backend runs inside the app, so a single phone serves both server and UI. Install the APK — no Termux, no manual Node setup, no port forwarding.
+  - icon: 🖥️
+    title: Standalone App
+    details: Run the complete server and interface as a desktop or mobile app for macOS, Windows, Android, or HarmonyOS. Open it and start chatting — no Termux, no manual Node setup, no port forwarding.
 ---

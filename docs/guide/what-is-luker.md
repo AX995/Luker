@@ -78,11 +78,11 @@ Pair two Luker instances on the same network and keep chats, cards, world info, 
 
 → [LAN Sync Documentation](/improvements/lan-sync)
 
-### Android App
+### Standalone App
 
-The backend runs inside the Android app, so one phone serves both the server and the interface. Install the APK and start chatting — no Termux, no manual Node install, no port forwarding.
+Run the complete server and interface as a desktop or mobile app for macOS, Windows, Android, or HarmonyOS. The app runs everything itself — no Termux, no manual Node install, no port forwarding.
 
-→ [Android App Guide](/guide/android)
+→ [Desktop App Guide](/guide/desktop)　·　[Android App Guide](/guide/android)　·　[HarmonyOS App Guide](/guide/harmonyos)
 
 ### Change the Model, Keep Your Prompt Setup
 

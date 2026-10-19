@@ -29,7 +29,7 @@ features:
   - icon: 🔍
     title: 搜尋外掛
     details: 角色可以在對話中途聯網搜尋，使用搜尋外掛中設定的 provider——既可以作為模型自行呼叫的工具，也可以作為預請求 agent，在生成前自動搜尋並將結果寫入世界書。
-  - icon: 📱
-    title: Android 應用
-    details: 後端完全在應用內執行，手機同時充當伺服端和介面。安裝 APK 即可使用——不需要 Termux、不需要手動安裝 Node、不需要連接埠轉送。
+  - icon: 🖥️
+    title: 獨立 App
+    details: 以桌面端或行動端 App 執行完整的伺服端和介面，支援 macOS、Windows、Android、HarmonyOS。開啟即可開始對話——不需要 Termux、不需要手動安裝 Node、不需要連接埠轉送。
 ---

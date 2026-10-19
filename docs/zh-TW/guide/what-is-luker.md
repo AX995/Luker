@@ -78,11 +78,11 @@ Luker 內建了多個面向角色扮演場景的專業工具——記憶圖、�
 
 → [區域網路同步詳細文件](/zh-TW/improvements/lan-sync)
 
-### Android 應用
+### 獨立 App
 
-後端完全在 Android 應用內執行，手機同時充當伺服端和介面。安裝 APK 即可使用——不需要 Termux、不需要手動安裝 Node、不需要連接埠轉送。
+以桌面端或行動端 App 執行完整的伺服端和介面，支援 macOS、Windows、Android、HarmonyOS。後端完全在 App 內執行——不需要 Termux、不需要手動安裝 Node、不需要連接埠轉送。
 
-→ [Android 應用指南](/zh-TW/guide/android)
+→ [桌面端 App 指南](/zh-TW/guide/desktop)　·　[Android App 指南](/zh-TW/guide/android)　·　[HarmonyOS App 指南](/zh-TW/guide/harmonyos)
 
 ### 換模型不必重配提示詞
 
