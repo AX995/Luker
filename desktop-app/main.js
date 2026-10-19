@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -325,6 +325,14 @@ function routeExternalNavigation(contents) {
 }
 
 app.whenReady().then(async () => {
+    // Electron installs a default application menu, which Windows and Linux
+    // draw as an in-window bar the shell has no use for. macOS keeps its own,
+    // because the standard Edit roles there also carry the clipboard
+    // accelerators.
+    if (process.platform !== 'darwin') {
+        Menu.setApplicationMenu(null);
+    }
+
     const locale = app.getLocale();
     const win = new BrowserWindow({
         width: 1024,
