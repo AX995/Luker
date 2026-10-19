@@ -5,15 +5,6 @@ name: Build Desktop Client
 
 on:
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: Build type to run manually
-        required: true
-        default: debug
-        type: choice
-        options:
-          - debug
-          - release
   push:
     branches:
       - "**"
@@ -24,8 +15,30 @@ permissions:
   contents: write
 
 jobs:
+  # The version an installer carries comes from the root manifest, so a tag that
+  # disagrees with it would publish assets nobody can match to the release. The
+  # check runs before either platform starts building.
+  version:
+    if: github.repository == 'funnycups/Luker'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${TAG_VERSION}" != "${PKG_VERSION}" ]]; then
+            echo "Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})." >&2
+            exit 1
+          fi
+
   build-macos:
     if: github.repository == 'funnycups/Luker'
+    needs: version
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -36,17 +49,6 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-
-      - name: Validate tag matches app version
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: |
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [[ "${TAG_VERSION}" != "${PKG_VERSION}" ]]; then
-            echo "Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})." >&2
-            exit 1
-          fi
 
       - name: Install server dependencies
         run: npm ci
@@ -59,30 +61,37 @@ jobs:
         working-directory: desktop-app
         run: node scripts/build-desktop.mjs mac
 
-      - name: Upload mac artifacts
+      - name: Upload the Apple Silicon disk image
         uses: actions/upload-artifact@v4
         with:
-          name: luker-desktop-macos-${{ github.sha }}
-          path: |
-            desktop-app/dist/Luker-*-mac-*.dmg
-            desktop-app/dist/Luker-*-mac-*.zip
+          name: luker-desktop-macos-arm64-dmg
+          path: desktop-app/dist/Luker-*-mac-arm64.dmg
+          if-no-files-found: error
 
-      - name: Publish release assets
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - name: Upload the Apple Silicon archive
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            desktop-app/dist/Luker-*-mac-*.dmg
-            desktop-app/dist/Luker-*-mac-*.zip
-            desktop-app/dist/Luker-*-win-*.exe
-            desktop-app/dist/Luker-*-win-*.zip
+          name: luker-desktop-macos-arm64-zip
+          path: desktop-app/dist/Luker-*-mac-arm64.zip
+          if-no-files-found: error
+
+      - name: Upload the Intel disk image
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-macos-x64-dmg
+          path: desktop-app/dist/Luker-*-mac-x64.dmg
+          if-no-files-found: error
+
+      - name: Upload the Intel archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-macos-x64-zip
+          path: desktop-app/dist/Luker-*-mac-x64.zip
+          if-no-files-found: error
 
   build-windows:
     if: github.repository == 'funnycups/Luker'
+    needs: version
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -93,17 +102,6 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-
-      - name: Validate tag matches app version
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: |
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [[ "${TAG_VERSION}" != "${PKG_VERSION}" ]]; then
-            echo "Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})." >&2
-            exit 1
-          fi
 
       - name: Install server dependencies
         run: npm ci
@@ -116,24 +114,56 @@ jobs:
         working-directory: desktop-app
         run: node scripts/build-desktop.mjs win
 
-      - name: Upload Windows artifacts
+      - name: Upload the Intel installer
         uses: actions/upload-artifact@v4
         with:
-          name: luker-desktop-windows-${{ github.sha }}
-          path: |
-            desktop-app/dist/Luker-*-win-*.exe
-            desktop-app/dist/Luker-*-win-*.zip
+          name: luker-desktop-windows-x64-exe
+          path: desktop-app/dist/Luker-*-win-x64.exe
+          if-no-files-found: error
+
+      - name: Upload the Intel archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-windows-x64-zip
+          path: desktop-app/dist/Luker-*-win-x64.zip
+          if-no-files-found: error
+
+      - name: Upload the Arm installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-windows-arm64-exe
+          path: desktop-app/dist/Luker-*-win-arm64.exe
+          if-no-files-found: error
+
+      - name: Upload the Arm archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-windows-arm64-zip
+          path: desktop-app/dist/Luker-*-win-arm64.zip
+          if-no-files-found: error
+
+  # One job publishes, so the release is created once and the generated notes
+  # are written once. Every file arrives here through the artifacts above, which
+  # is what keeps the globs off the other platform's output.
+  publish:
+    if: github.repository == 'funnycups/Luker' && startsWith(github.ref, 'refs/tags/')
+    needs:
+      - build-macos
+      - build-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the built installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: luker-desktop-*
+          merge-multiple: true
+          path: release-assets
 
       - name: Publish release assets
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
-          files: |
-            desktop-app/dist/Luker-*-mac-*.dmg
-            desktop-app/dist/Luker-*-mac-*.zip
-            desktop-app/dist/Luker-*-win-*.exe
-            desktop-app/dist/Luker-*-win-*.zip
+          files: release-assets/*
