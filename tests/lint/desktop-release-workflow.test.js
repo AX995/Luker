@@ -9,7 +9,7 @@ const WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'desktop-release.y
 const ROOT_PACKAGE = path.join(REPO_ROOT, 'package.json');
 const DESKTOP_PACKAGE = path.join(REPO_ROOT, 'desktop-app', 'package.json');
 
-// Every artifact a plain `--mac` / `--win` build emits lands here; the release
+// Every artifact a plain `--mac` / `--win` build emits lands here; the upload
 // globs are relative to the repository root.
 const DIST = 'desktop-app/dist';
 
@@ -33,6 +33,14 @@ function publishSteps(workflow) {
     return allSteps(workflow).filter(step => String(step.uses ?? '').startsWith('softprops/action-gh-release'));
 }
 
+function uploadSteps(workflow) {
+    return allSteps(workflow).filter(step => String(step.uses ?? '').startsWith('actions/upload-artifact'));
+}
+
+function downloadSteps(workflow) {
+    return allSteps(workflow).filter(step => String(step.uses ?? '').startsWith('actions/download-artifact'));
+}
+
 // A `run:` script that reads a shell variable or opens a subshell is executed by
 // the runner's default shell. Windows runners default to PowerShell, so any
 // such step has to ask for bash explicitly. GitHub's `${{ }}` expressions are
@@ -50,22 +58,18 @@ test('the workflow triggers on every branch, on tags and on a manual dispatch', 
     const workflow = readWorkflow();
     expect(workflow.permissions?.contents).toBe('write');
 
-    const dispatch = workflow.on?.workflow_dispatch?.inputs?.build_type;
-    expect(dispatch).toEqual({
-        description: 'Build type to run manually',
-        required: true,
-        default: 'debug',
-        type: 'choice',
-        options: ['debug', 'release'],
-    });
+    const dispatch = workflow.on?.workflow_dispatch;
+    // The desktop build has no debug variant to choose between, so a manual run
+    // takes the same path as a branch push and there is nothing to input.
+    expect(dispatch).toBeNull();
 
     expect(workflow.on?.push?.branches).toEqual(['**']);
     expect(workflow.on?.push?.tags).toEqual(['*']);
 });
 
-test('the two platform jobs run on their own runners behind the repository gate', () => {
+test('the platform jobs run on their own runners behind the repository gate', () => {
     const jobs = readWorkflow().jobs;
-    expect(Object.keys(jobs).sort()).toEqual(['build-macos', 'build-windows']);
+    expect(Object.keys(jobs).sort()).toEqual(['build-macos', 'build-windows', 'publish', 'version']);
     expect(jobs['build-macos']['runs-on']).toBe('macos-latest');
     expect(jobs['build-windows']['runs-on']).toBe('windows-latest');
     for (const job of Object.values(jobs)) {
@@ -124,19 +128,53 @@ test('a tag build refuses to run when the tag and the manifest version disagree'
 });
 
 test('a tag build publishes the artifacts through the shared release action', () => {
-    const publishes = publishSteps(readWorkflow());
-    expect(publishes.length).toBeGreaterThan(0);
+    const workflow = readWorkflow();
+    const publishes = publishSteps(workflow);
+    // One job publishes, so the release is created once and the generated notes
+    // are written once.
+    expect(publishes).toHaveLength(1);
     for (const step of publishes) {
         expect(step.uses).toBe('softprops/action-gh-release@v2');
-        expect(String(step.if)).toContain('refs/tags/');
         expect(step.with.tag_name).toBe('${{ github.ref_name }}');
         expect(step.with.name).toBe('${{ github.ref_name }}');
         expect(step.with.prerelease).toBe("${{ contains(github.ref_name, '-') }}");
         expect(step.with.generate_release_notes).toBe(true);
     }
+
+    // The tag gate sits on the publishing job, and the files it publishes are
+    // whatever the download step put on disk.
+    const job = Object.values(workflow.jobs)
+        .find(entry => (entry.steps ?? []).some(step => publishes.includes(step)));
+    expect(String(job.if)).toContain('refs/tags/');
+    const download = downloadSteps(workflow);
+    expect(download).toHaveLength(1);
+    expect(publishes[0].with.files).toBe(`${download[0].with.path}/*`);
 });
 
-test('the release globs cover both architectures of both platforms', () => {
+test('each artifact carries one file, and the download pattern takes them all', () => {
+    const workflow = readWorkflow();
+    const uploads = uploadSteps(workflow);
+    expect(uploads.length).toBeGreaterThan(0);
+
+    const names = [];
+    for (const step of uploads) {
+        // One file per artifact, so a download is a zip of the one file asked
+        // for rather than of the whole build.
+        expect(String(step.with.path).trim().split('\n')).toHaveLength(1);
+        // A missing file has to fail the run, not publish an incomplete set.
+        expect(step.with['if-no-files-found']).toBe('error');
+        names.push(step.with.name);
+    }
+
+    const download = downloadSteps(workflow)[0];
+    expect(download.uses).toBe('actions/download-artifact@v4');
+    expect(download.with['merge-multiple']).toBe(true);
+    for (const name of names) {
+        expect(globToRegExp(String(download.with.pattern)).test(name)).toBe(true);
+    }
+});
+
+test('the upload globs cover every file the build emits', () => {
     const desktop = JSON.parse(fs.readFileSync(DESKTOP_PACKAGE, 'utf8')).build;
     const { version } = JSON.parse(fs.readFileSync(ROOT_PACKAGE, 'utf8'));
 
@@ -157,8 +195,7 @@ test('the release globs cover both architectures of both platforms', () => {
     }
     expect(names).toHaveLength(8);
 
-    const patterns = publishSteps(readWorkflow())
-        .flatMap(step => String(step.with.files).split('\n').map(line => line.trim()).filter(Boolean));
+    const patterns = uploadSteps(readWorkflow()).map(step => String(step.with.path).trim());
     for (const name of names) {
         expect(patterns.some(pattern => globToRegExp(pattern).test(`${DIST}/${name}`))).toBe(true);
     }
