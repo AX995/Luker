@@ -4764,7 +4764,11 @@ function openBulkSetFieldMenu(name, data, anchorEl) {
 
     const menu = document.createElement('div');
     menu.id = 'world_bulk_set_field_menu';
-    menu.classList.add('list-group', 'world_bulk_field_menu');
+    // Deliberately not reusing the shared .list-group styling: it layers a
+    // translucent backdrop-filter tint and dims every row to opacity 0.5, which
+    // reads as a flat, washed-out grey panel on browsers that drop the
+    // backdrop-filter layer. The menu carries its own styling instead.
+    menu.classList.add('world_bulk_field_menu');
     menu.tabIndex = 0;
 
     /** @type {Array<{ label: string, onClick: () => void }>} */
@@ -4818,26 +4822,36 @@ function openBulkSetFieldMenu(name, data, anchorEl) {
         void openBulkSetMatchedFieldsDialog(name, data);
     }));
 
-    // Mount on document.body so the menu escapes any ancestor stacking context
-    // (e.g. the drawer's transform/positioning would otherwise clip or under-layer
-    // the menu). z-index in CSS lifts it above the drawer chrome.
+    // Mount on document.body so the menu escapes the drawer's stacking context
+    // and its overflow clipping. The drawer content carries backdrop-filter and
+    // overflow-y, either of which would clip or under-layer a menu mounted
+    // inside it. The global drawer auto-close handler (script.js) skips its
+    // outside-tap logic for menu targets because the menu stops propagation
+    // while the event bubbles (see below).
     document.body.appendChild(menu);
     const rect = anchorEl.getBoundingClientRect();
     // The anchor lives in a position:fixed drawer, so fixed coordinates track it
     // exactly; the app page itself never scrolls, so no scroll compensation.
     menu.style.position = 'fixed';
-    menu.style.left = `${rect.left}px`;
 
-    // Clamp the menu inside the viewport. The page cannot be scrolled, so a
-    // menu that extends past the window's bottom edge would put its lower
-    // items out of reach: the menu's overflow-y only scrolls content inside
-    // the menu's own box, it can't bring the box itself back on screen.
-    // Size the menu to the space actually available below the anchor; when
-    // that's too tight to be usable, flip the menu above the anchor like a
-    // standard dropdown.
     const ANCHOR_GAP_PX = 2;   // visual gap between the anchor button and the menu
     const EDGE_MARGIN_PX = 8;  // breathing room so the menu doesn't touch the window edge
     const MIN_MENU_HEIGHT_PX = 120; // ~4 leaf rows — a shorter below-anchor menu isn't usable, prefer flipping up
+
+    // Horizontal: start at the anchor's left edge, then clamp inside the
+    // viewport. The anchor sits in a wrapping toolbar, so on a narrow screen it
+    // can be far enough right that a left-aligned menu would run past the right
+    // edge and put its content out of reach.
+    const menuWidth = menu.offsetWidth;
+    const maxLeftPx = Math.max(EDGE_MARGIN_PX, window.innerWidth - menuWidth - EDGE_MARGIN_PX);
+    menu.style.left = `${Math.min(Math.max(rect.left, EDGE_MARGIN_PX), maxLeftPx)}px`;
+
+    // Vertical: prefer below the anchor. The page cannot be scrolled, so a menu
+    // that extends past the window's bottom edge would put its lower items out
+    // of reach — overflow-y only scrolls content inside the menu's own box, it
+    // can't bring the box itself back on screen. Size the menu to the space
+    // actually available; when that's too tight to be usable, flip the menu
+    // above the anchor like a standard dropdown.
     const spaceBelow = window.innerHeight - EDGE_MARGIN_PX - (rect.bottom + ANCHOR_GAP_PX);
     let topPx = rect.bottom + ANCHOR_GAP_PX;
     if (spaceBelow < MIN_MENU_HEIGHT_PX) {
@@ -4849,12 +4863,15 @@ function openBulkSetFieldMenu(name, data, anchorEl) {
     menu.style.top = `${topPx}px`;
     menu.style.maxHeight = `${Math.max(availableHeight, MIN_MENU_HEIGHT_PX)}px`;
 
-    // Belt-and-suspenders: stop pointer events from bubbling out of the menu so that no
-    // outer listener (drawer close-on-outside-click, focus trackers, etc.) reacts to a
-    // click that is logically inside our menu. touchstart must be shielded too: the
-    // global drawer auto-close handler (script.js) listens for BOTH touchstart and
-    // mousedown on <html>, and the menu lives on document.body — outside every drawer
-    // — so an unshielded touchstart closes the drawer before the tap's click even fires.
+    // Keep pointer events from leaking out of the menu so the drawer's
+    // auto-close handler (script.js, bound to touchstart/mousedown on <html>)
+    // does not treat a tap on a menu row as an outside tap and close the World
+    // Info drawer behind the menu. This listener runs while the event bubbles,
+    // so the tapped row already received the event before propagation stops —
+    // the browser's tap-to-click synthesis is unaffected. Do not move this to a
+    // capture listener on document: stopping the event before it reaches the
+    // target breaks click synthesis on some browsers, which leaves the menu
+    // rows unresponsive.
     const stopBubble = (event) => { event.stopPropagation(); };
     menu.addEventListener('touchstart', stopBubble, { passive: true });
     menu.addEventListener('mousedown', stopBubble);
@@ -4862,22 +4879,12 @@ function openBulkSetFieldMenu(name, data, anchorEl) {
 
     const onOutside = (event) => {
         if (menu.contains(event.target)) {
-            // Click is INSIDE our menu — also stop the event in capture stage so
-            // any other capture-stage listener that runs after us doesn't react
-            // to a click that logically belongs to us. Click events still dispatch
-            // to the leaf's bubble-stage handler, so menu items remain clickable.
-            event.stopPropagation();
             return;
         }
         closeBulkSetFieldMenu();
     };
     const onOutsideTouch = (event) => {
         if (menu.contains(event.target)) {
-            // Same capture-stage shield for touch: the global drawer
-            // auto-close handler listens for touchstart on <html> in bubble
-            // stage; this document-level capture runs first and keeps the
-            // drawer open while the user taps inside the menu.
-            event.stopPropagation();
             return;
         }
         closeBulkSetFieldMenu();
@@ -4906,7 +4913,7 @@ function openBulkSetFieldMenu(name, data, anchorEl) {
 
 function buildBulkMenuLeaf(labelKey, onClick) {
     const el = document.createElement('div');
-    el.classList.add('list-group-item', 'world_bulk_field_menu_item');
+    el.classList.add('world_bulk_field_menu_item');
     el.textContent = translate(labelKey);
     el.addEventListener('click', (event) => {
         event.preventDefault();
@@ -4921,7 +4928,7 @@ function buildBulkMenuSubmenu(labelKey, items) {
     wrapper.classList.add('world_bulk_field_menu_submenu', 'collapsed');
 
     const header = document.createElement('div');
-    header.classList.add('list-group-item', 'world_bulk_field_menu_item', 'world_bulk_field_menu_submenu_header');
+    header.classList.add('world_bulk_field_menu_item', 'world_bulk_field_menu_submenu_header');
     const caret = document.createElement('i');
     caret.classList.add('fa-solid', 'fa-caret-right', 'world_bulk_field_menu_caret');
     header.appendChild(caret);
