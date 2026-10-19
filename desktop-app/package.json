@@ -3,6 +3,7 @@
   "productName": "Luker",
   "version": "1.0.0",
   "description": "Luker desktop client",
+  "author": "Luker",
   "license": "AGPL-3.0",
   "type": "module",
   "main": "main.js",
