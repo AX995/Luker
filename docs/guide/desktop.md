@@ -37,6 +37,8 @@ Either file works; you do not need both.
 - **`.exe`** — run it and follow the installer.
 - **`.zip`** — unpack it and run `Luker.exe` from the unpacked folder.
 
+Antivirus software sometimes flags the `.exe` because it is not code-signed. If that happens, allow the file and run it again.
+
 ## First Launch
 
 The app is not signed with a paid code-signing certificate, so macOS and Windows each show a security warning the first time it opens. The warning is expected, and the app runs normally once you allow it.
