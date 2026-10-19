@@ -2,7 +2,7 @@
 description: Luker 提供桌面版應用，讓 macOS 與 Windows 使用者以獨立應用的形式執行完整的 Luker 服務與介面。指南說明下載、安裝、首次啟動的系統安全提示放行，以及資料目錄位置。
 ---
 
-# Desktop App
+# 桌面端 App
 
 Luker 提供桌面版應用，讓 macOS 與 Windows 使用者以獨立應用的形式執行完整的 Luker 服務與介面。開啟應用即可直接顯示完整的 Luker 介面，不需要另外使用瀏覽器存取地址。
 
