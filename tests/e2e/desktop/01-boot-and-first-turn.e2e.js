@@ -11,7 +11,7 @@ import { writeEmbeddedCharacter } from '../character/_helpers.js';
 import { existsSync, readdirSync } from 'node:fs';
 
 // 这个文件的三条用例共用一个 app 实例且互相依赖（发消息 → 重启后仍在 →
-// 关掉后端口释放）。`playwright.config.js` 开着 fullyParallel，不声明 serial
+// 退出后端口释放）。`playwright.config.js` 开着 fullyParallel，不声明 serial
 // 的话每条用例会各起一个 worker、各跑一遍 beforeAll。
 test.describe.configure({ mode: 'serial' });
 
@@ -55,8 +55,10 @@ test('chat data lands under the scratch userData and survives a relaunch', async
     expect(rendered.some(t => /gull rocks|breakers/.test(t))).toBe(true);
 });
 
-test('closing the app releases the port', async () => {
+test('quitting the app releases the port', async () => {
     const { port } = desktop;
+    // Playwright's close asks the app to quit, which is the same path the tray
+    // menu and the platform's quit shortcut take.
     await desktop.close();
     await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
 });

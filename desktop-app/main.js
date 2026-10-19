@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from 'electron';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -324,6 +324,112 @@ function routeExternalNavigation(contents) {
     });
 }
 
+// The shell draws a few labels of its own, outside the renderer: the tray menu
+// and the macOS application menu. It carries its own copy of the loading
+// page's locale table so those follow the system locale too.
+const SHELL_STRINGS = {
+    en: {
+        showWindow: 'Show Luker',
+        openDataDirectory: 'Open data directory',
+        quit: 'Quit Luker',
+        trayHint: 'Luker keeps running in the notification area. Quit from its menu when you are done.',
+    },
+    'zh-CN': {
+        showWindow: '显示 Luker',
+        openDataDirectory: '打开数据目录',
+        quit: '退出 Luker',
+        trayHint: 'Luker 仍在通知区域运行，结束时请从托盘菜单退出。',
+    },
+    'zh-TW': {
+        showWindow: '顯示 Luker',
+        openDataDirectory: '開啟資料目錄',
+        quit: '結束 Luker',
+        trayHint: 'Luker 仍在通知區域執行，結束時請從托盤選單結束。',
+    },
+};
+
+function pickShellStrings(locale) {
+    if (Object.prototype.hasOwnProperty.call(SHELL_STRINGS, locale)) {
+        return SHELL_STRINGS[locale];
+    }
+    const lower = String(locale || '').toLowerCase();
+    if (lower.startsWith('zh')) {
+        if (lower.includes('tw') || lower.includes('hk') || lower.includes('hant')) {
+            return SHELL_STRINGS['zh-TW'];
+        }
+        return SHELL_STRINGS['zh-CN'];
+    }
+    return SHELL_STRINGS.en;
+}
+
+// Closing the window hides it instead of destroying it. The backend runs in
+// this process, so quitting on close would end any generation in flight; only
+// a real quit takes the window down.
+let quitting = false;
+let tray = null;
+let trayHintShown = false;
+
+function showMainWindow(win) {
+    if (win.isDestroyed()) {
+        return;
+    }
+    if (win.isMinimized()) {
+        win.restore();
+    }
+    win.show();
+    win.focus();
+}
+
+function openDataDirectory() {
+    // The e2e harness sets this so a test run never launches a file manager.
+    if (process.env.LUKER_DESKTOP_SKIP_OPEN_DATA_DIR === '1') {
+        const opened = globalThis.__lukerDataDirectoryOpens ?? (globalThis.__lukerDataDirectoryOpens = []);
+        opened.push(userData);
+        return;
+    }
+    return shell.openPath(userData);
+}
+
+function createTray(win, strings) {
+    tray = new Tray(nativeImage.createFromPath(path.join(import.meta.dirname, 'tray-icon.png')));
+    tray.setToolTip('Luker');
+    tray.setContextMenu(Menu.buildFromTemplate([
+        { label: strings.showWindow, click: () => showMainWindow(win) },
+        { label: strings.openDataDirectory, click: openDataDirectory },
+        { type: 'separator' },
+        { label: strings.quit, click: () => app.quit() },
+    ]));
+    tray.on('click', () => showMainWindow(win));
+}
+
+function installApplicationMenu(strings) {
+    // macOS keeps an application menu, because its Edit roles carry the
+    // clipboard accelerators. Electron's default menu does not take new items,
+    // so the template below mirrors it and adds the data directory command to
+    // the app menu, where macOS puts application-level commands.
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+        {
+            label: app.name,
+            submenu: [
+                { role: 'about' },
+                { label: strings.openDataDirectory, click: openDataDirectory },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { role: 'quit' },
+            ],
+        },
+        { role: 'fileMenu' },
+        { role: 'editMenu' },
+        { role: 'viewMenu' },
+        { role: 'windowMenu' },
+    ]));
+}
+
 app.whenReady().then(async () => {
     // Electron installs a default application menu, which Windows and Linux
     // draw as an in-window bar the shell has no use for. macOS keeps its own,
@@ -334,14 +440,42 @@ app.whenReady().then(async () => {
     }
 
     const locale = app.getLocale();
+    const strings = pickShellStrings(locale);
     const win = new BrowserWindow({
         width: 1024,
         height: 768,
         webPreferences: {
             preload: path.join(import.meta.dirname, 'preload.js'),
+            // A hidden window is throttled by default, which would slow the
+            // renderer's timers and animations down while the app sits in the
+            // tray. Leaving the page unthrottled matches what hiding does on
+            // macOS on its own, so every platform behaves the same way.
+            backgroundThrottling: false,
         },
     });
     routeExternalNavigation(win.webContents);
+
+    win.on('close', (event) => {
+        if (quitting) {
+            return;
+        }
+        event.preventDefault();
+        win.hide();
+        // Windows tucks new tray icons into its overflow area, so the first
+        // close tells the user where the app went.
+        if (process.platform === 'win32' && !trayHintShown) {
+            trayHintShown = true;
+            tray.displayBalloon({ title: 'Luker', content: strings.trayHint });
+        }
+    });
+
+    if (process.platform === 'darwin') {
+        installApplicationMenu(strings);
+    } else {
+        createTray(win, strings);
+    }
+
+    app.on('activate', () => showMainWindow(win));
 
     await win.loadFile('loading.html', { query: { locale } });
 
@@ -358,9 +492,10 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+    // Lets the window's close handler through, so a real quit destroys the
+    // window and the process can exit.
+    quitting = true;
     backendStarting = false;
     stopWatchingStartup();
     stopTeeingLogs();
 });
-
-app.on('window-all-closed', () => app.quit());
