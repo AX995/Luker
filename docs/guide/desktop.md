@@ -21,7 +21,7 @@ Each release ships an installer and a plain archive for both platforms. The file
 | `Luker-<version>-win-<arch>.exe` | Windows installer; installs the app and adds shortcuts |
 | `Luker-<version>-win-<arch>.zip` | Windows portable archive that runs without installing |
 
-`<arch>` is `arm64` on Apple Silicon and `x64` on Intel Macs and 64-bit Windows. Pick the file that matches your machine.
+`<arch>` is `arm64` on Apple Silicon and on Windows on ARM, and `x64` on Intel Macs and on Intel or AMD Windows. Pick the file that matches your machine.
 
 ## Install
 

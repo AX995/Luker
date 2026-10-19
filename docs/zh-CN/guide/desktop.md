@@ -21,7 +21,7 @@ Luker 提供桌面版应用，让 macOS 与 Windows 用户以独立应用的形�
 | `Luker-<version>-win-<arch>.exe` | Windows 安装包，安装应用并创建快捷方式 |
 | `Luker-<version>-win-<arch>.zip` | Windows 免安装压缩包，解压后直接运行 |
 
-`<arch>` 在 Apple Silicon 上为 `arm64`，在 Intel Mac 与 64 位 Windows 上为 `x64`。请选择与你的设备匹配的文件。
+`<arch>` 在 Apple Silicon Mac 与 Windows on ARM 上为 `arm64`，在 Intel Mac 与 Intel 或 AMD 处理器的 Windows 上为 `x64`。请选择与你的设备匹配的文件。
 
 ## 安装
 
