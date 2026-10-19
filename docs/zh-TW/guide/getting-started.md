@@ -2,19 +2,66 @@
 
 本指南將幫助你在幾分鐘內啟動並執行 Luker。
 
-## 前置條件
+Luker 可以執行在你自己的電腦或手機上。選擇適合你的方式即可，只需準備所選方式對應的依賴。所有方式都需要一個可用的 LLM API（OpenAI、Claude、Google Gemini、本機模型等）。
 
-| 依賴 | 要求 |
-| --- | --- |
-| **Node.js** | >= 24.0（僅 Git Clone 方式需要） |
-| **Git** | 任意版本（僅 Git Clone 方式需要） |
-| **Docker** | 任意現代版本（僅 Docker 方式需要） |
+## 獨立 App
 
-你還需要準備一個可用的 LLM API（OpenAI、Claude、Google Gemini、本機模型等）。
+將完整的 Luker 服務與介面打包在單一 App 內，是一個獨立執行的應用。開啟即顯示完整介面，無需終端，也無需瀏覽器地址。
 
-## 安裝方式一：Git Clone
+| 平台 | 取得方式 | 所需依賴 |
+| --- | --- | --- |
+| 桌面端（macOS、Windows） | [桌面端 App](/zh-TW/guide/desktop) | 無 |
+| Android | [Android App](/zh-TW/guide/android) | 無 |
+| HarmonyOS | [從原始碼建置](/zh-TW/guide/harmonyos) | Node.js >= 24.0、DevEco Studio |
 
-適合希望自行管理和更新的使用者。
+iPhone 與 iPad 沒有 App，請在 Safari 中使用 Luker，詳見 [iOS](/zh-TW/guide/ios)。
+
+## Docker
+
+適合伺服器部署或希望開箱即用的使用者。Luker 提供了預建置的 Docker 映像檔，需要安裝 Docker。
+
+### 1. 建立 `docker-compose.yml`
+
+在你希望存放資料的目錄下建立 `docker-compose.yml`：
+
+```yaml
+services:
+  luker:
+    image: ghcr.io/funnycups/luker:latest
+    container_name: luker
+    ports:
+      - 127.0.0.1:8000:8000
+    volumes:
+      - ./plugins:/home/node/app/plugins
+      - ./config:/home/node/app/config
+      - ./data:/home/node/app/data
+      - ./extensions:/home/node/app/public/scripts/extensions/third-party
+    restart: unless-stopped
+```
+
+### 2. 啟動容器
+
+```bash
+docker compose up -d
+```
+
+::: warning 連接埠綁定與安全防護
+預設設定將連接埠綁定到 `127.0.0.1:8000`，僅允許本機存取。如需遠端存取，請將 `127.0.0.1:8000:8000` 改為 `0.0.0.0:8000:8000`，並確保做好以下安全防護：
+
+- **反向代理 + HTTPS**：透過 Nginx 等反向代理提供 HTTPS 加密
+- **啟用登入機制**：開啟 Basic Auth（`basicAuthMode: true`）或多使用者登入（`enableUserAccounts: true`），防止未授權存取。詳見 [基礎設定](/zh-TW/guide/configuration#認證與多使用者)
+:::
+
+### 3. 更新映像檔
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+## Git Clone
+
+適合希望自行管理和更新的使用者，需要 Node.js >= 24.0 和 Git。
 
 ### 1. 複製儲存庫
 
@@ -59,59 +106,6 @@ git pull
 npm install
 ```
 
-## 安裝方式二：Docker
-
-適合伺服器部署或希望開箱即用的使用者。Luker 提供了預建置的 Docker 映像檔。
-
-### 1. 建立 `docker-compose.yml`
-
-在你希望存放資料的目錄下建立 `docker-compose.yml`：
-
-```yaml
-services:
-  luker:
-    image: ghcr.io/funnycups/luker:latest
-    container_name: luker
-    ports:
-      - 127.0.0.1:8000:8000
-    volumes:
-      - ./plugins:/home/node/app/plugins
-      - ./config:/home/node/app/config
-      - ./data:/home/node/app/data
-      - ./extensions:/home/node/app/public/scripts/extensions/third-party
-    restart: unless-stopped
-```
-
-### 2. 啟動容器
-
-```bash
-docker compose up -d
-```
-
-::: warning 連接埠綁定與安全防護
-預設設定將連接埠綁定到 `127.0.0.1:8000`，僅允許本機存取。如需遠端存取，請將 `127.0.0.1:8000:8000` 改為 `0.0.0.0:8000:8000`，並確保做好以下安全防護：
-
-- **反向代理 + HTTPS**：透過 Nginx 等反向代理提供 HTTPS 加密
-- **啟用登入機制**：開啟 Basic Auth（`basicAuthMode: true`）或多使用者登入（`enableUserAccounts: true`），防止未授權存取。詳見 [基礎設定](/zh-TW/guide/configuration#認證與多使用者)
-:::
-
-### 3. 更新映像檔
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-## 安裝方式三：Android APK
-
-Luker 提供 Android APP，你可以直接在手機上執行 Luker，無需依賴雲端伺服器或 Termux。
-
-前往 GitHub Release 頁面下載最新版 APK：
-
-👉 [https://github.com/funnycups/Luker/releases/latest](https://github.com/funnycups/Luker/releases/latest)
-
-下載並安裝 APK 後，開啟應用即可直接使用。
-
 ## 首次設定
 
 ### 存取 Luker
@@ -122,8 +116,8 @@ Luker 提供 Android APP，你可以直接在手機上執行 Luker，無需依�
 http://localhost:8000
 ```
 
-::: tip Android 使用者
-APK 版本是一個獨立的 App，開啟後直接顯示完整介面，不需要另外使用瀏覽器存取地址。
+::: tip 獨立 App 使用者
+桌面端、Android、HarmonyOS 版本開啟後直接顯示完整介面，不需要另外使用瀏覽器存取地址。
 :::
 
 ### 設定 API 連線

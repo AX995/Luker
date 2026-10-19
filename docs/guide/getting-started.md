@@ -2,19 +2,66 @@
 
 This guide will help you get Luker up and running in minutes.
 
-## Prerequisites
+Luker runs on your own computer or phone. Pick the method that fits you — you only need the tools that method requires. Every method also needs a working LLM API (OpenAI, Claude, Google Gemini, local models, etc.).
 
-| Dependency | Requirement |
-| --- | --- |
-| **Node.js** | >= 24.0 (Git Clone method only) |
-| **Git** | Any version (Git Clone method only) |
-| **Docker** | Any modern version (Docker method only) |
+## Standalone App
 
-You'll also need a working LLM API (OpenAI, Claude, Google Gemini, local models, etc.).
+Run the complete Luker server and interface inside a single app. Opening it shows the full interface — there is no terminal and no browser address.
 
-## Method 1: Git Clone
+| Platform | How to get it | Requirements |
+| --- | --- | --- |
+| Desktop (macOS, Windows) | [Desktop App](/guide/desktop) | None |
+| Android | [Android App](/guide/android) | None |
+| HarmonyOS | [Build from source](/guide/harmonyos) | Node.js >= 24.0, DevEco Studio |
 
-Best for users who want to manage and update manually.
+iPhone and iPad have no app; use Luker in Safari. See [iOS](/guide/ios).
+
+## Docker
+
+Best for server deployments or users who want an out-of-the-box experience. Luker provides pre-built Docker images. Requires Docker.
+
+### 1. Create `docker-compose.yml`
+
+Create a `docker-compose.yml` in the directory where you want to store data:
+
+```yaml
+services:
+  luker:
+    image: ghcr.io/funnycups/luker:latest
+    container_name: luker
+    ports:
+      - 127.0.0.1:8000:8000
+    volumes:
+      - ./plugins:/home/node/app/plugins
+      - ./config:/home/node/app/config
+      - ./data:/home/node/app/data
+      - ./extensions:/home/node/app/public/scripts/extensions/third-party
+    restart: unless-stopped
+```
+
+### 2. Start the Container
+
+```bash
+docker compose up -d
+```
+
+::: warning Port Binding and Security
+The default configuration binds the port to `127.0.0.1:8000`, allowing only local access. For remote access, change `127.0.0.1:8000:8000` to `0.0.0.0:8000:8000` and make sure to set up the following security measures:
+
+- **Reverse Proxy + HTTPS**: Use a reverse proxy like Nginx to provide HTTPS encryption
+- **Enable Authentication**: Turn on Basic Auth (`basicAuthMode: true`) or multi-user login (`enableUserAccounts: true`) to prevent unauthorized access. See [Configuration](/guide/configuration#authentication-and-multi-user) for details
+:::
+
+### 3. Update the Image
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+## Git Clone
+
+Best for users who want to manage and update manually. Requires Node.js >= 24.0 and Git.
 
 ### 1. Clone the Repository
 
@@ -59,59 +106,6 @@ git pull
 npm install
 ```
 
-## Method 2: Docker
-
-Best for server deployments or users who want an out-of-the-box experience. Luker provides pre-built Docker images.
-
-### 1. Create `docker-compose.yml`
-
-Create a `docker-compose.yml` in the directory where you want to store data:
-
-```yaml
-services:
-  luker:
-    image: ghcr.io/funnycups/luker:latest
-    container_name: luker
-    ports:
-      - 127.0.0.1:8000:8000
-    volumes:
-      - ./plugins:/home/node/app/plugins
-      - ./config:/home/node/app/config
-      - ./data:/home/node/app/data
-      - ./extensions:/home/node/app/public/scripts/extensions/third-party
-    restart: unless-stopped
-```
-
-### 2. Start the Container
-
-```bash
-docker compose up -d
-```
-
-::: warning Port Binding and Security
-The default configuration binds the port to `127.0.0.1:8000`, allowing only local access. For remote access, change `127.0.0.1:8000:8000` to `0.0.0.0:8000:8000` and make sure to set up the following security measures:
-
-- **Reverse Proxy + HTTPS**: Use a reverse proxy like Nginx to provide HTTPS encryption
-- **Enable Authentication**: Turn on Basic Auth (`basicAuthMode: true`) or multi-user login (`enableUserAccounts: true`) to prevent unauthorized access. See [Configuration](/guide/configuration#authentication-and-multi-user) for details
-:::
-
-### 3. Update the Image
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-## Method 3: Android APK
-
-Luker provides an Android app that lets you run Luker directly on your phone without relying on a cloud server or Termux.
-
-Download the latest APK from the GitHub Releases page:
-
-👉 [https://github.com/funnycups/Luker/releases/latest](https://github.com/funnycups/Luker/releases/latest)
-
-Download and install the APK, then open the app to start using it right away.
-
 ## Initial Setup
 
 ### Access Luker
@@ -122,8 +116,8 @@ Once the server is running, open your browser and navigate to:
 http://localhost:8000
 ```
 
-::: tip Android Users
-The APK version is a standalone app — it displays the full interface when opened, no need to visit a URL in a separate browser.
+::: tip Standalone App Users
+The Desktop, Android, and HarmonyOS apps display the full interface when opened — there is no URL to visit in a separate browser.
 :::
 
 ### Configure API Connection
