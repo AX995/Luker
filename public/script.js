@@ -1044,7 +1044,7 @@ function isRunningInLukerAndroidApp() {
         && typeof window.LukerAndroid === 'object';
 }
 
-function isRunningInLukerHarmonyApp() {
+export function isRunningInLukerHarmonyApp() {
     return typeof window !== 'undefined'
         && typeof window.LukerHarmony === 'object'
         && window.LukerHarmony !== null;
