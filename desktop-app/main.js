@@ -66,6 +66,13 @@ if (process.env.LUKER_DESKTOP_USER_DATA) {
 
 const UPDATE_PROGRESS_CHANNEL = 'luker:update-progress';
 
+const updatesDirectory = path.join(userData, 'updates');
+
+// The update prompt hands the downloaded installer to the OS, which owns it
+// from there on, so the copy under the data root is only a staging file. A
+// launch clears whatever an earlier run left behind.
+fs.rmSync(updatesDirectory, { recursive: true, force: true });
+
 // The renderer can only name the asset; the main process fetches it over the
 // network and writes it under the data root. Streamed through a counting
 // transform so the renderer sees `{ received, total }` while it downloads.
@@ -98,7 +105,6 @@ ipcMain.handle('luker:install-update', async (event, payload) => {
         throw new Error(`The update download has no usable file name: ${String(payload?.name || '')}`);
     }
 
-    const updatesDirectory = path.join(userData, 'updates');
     fs.mkdirSync(updatesDirectory, { recursive: true });
     const finalPath = path.join(updatesDirectory, name);
     const partialPath = `${finalPath}.part`;

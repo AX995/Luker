@@ -67,7 +67,6 @@ Inside it:
 - `backups/` — chat backups
 - `plugins/` — server plugins
 - `extensions/third-party/` — third-party extensions
-- `updates/` — updates downloaded through the in-app prompt
 
 ## Closing the Window
 
@@ -87,7 +86,7 @@ The desktop app supports the `fs`, `mysql`, and `postgres` storage backends. The
 
 ## Updates
 
-When a new version is available, the app shows an update prompt in the interface. **Download Update** fetches the installer for the current platform into the `updates/` directory and hands it to the system installer.
+When a new version is available, the app shows an update prompt in the interface. **Download Update** fetches the installer for the current platform and hands it to the system installer.
 
 ## Related Pages
 

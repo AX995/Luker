@@ -72,6 +72,18 @@ test('confirming downloads the installer into the data root', async () => {
     expect(readFileSync(destination)).toEqual(Buffer.from(ASSET_BYTES));
 });
 
+test('a relaunch clears the installer an earlier run downloaded', async () => {
+    const destination = join(desktop.userData, 'updates', ASSET_NAME);
+    expect(existsSync(destination)).toBe(true);
+
+    // The OS owns the installer once it has been handed over, so the copy under
+    // the data root is only staging: the next launch drops whatever is left.
+    await desktop.relaunch();
+    await awaitMainUI(desktop.page, desktop.baseURL);
+
+    expect(existsSync(destination)).toBe(false);
+});
+
 test('a failing asset download is reported, not swallowed', async () => {
     stub.setAssetStatus(404);
     const failing = await launchLukerDesktop({
