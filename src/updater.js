@@ -65,6 +65,15 @@ function parseGitHubRepository(repositoryField) {
     }
 }
 
+/**
+ * The repository whose published releases are queried, parsed once from the
+ * package metadata.
+ * @returns {{ owner: string, repo: string } | null}
+ */
+export function getGitHubRepository() {
+    return githubRepository;
+}
+
 function resetGitUpdateStateForRun() {
     gitUpdateState.runId += 1;
     gitUpdateState.running = true;
@@ -360,14 +369,22 @@ export function startGitUpdate() {
     };
 }
 
-export async function fetchLatestApkReleaseInfo() {
-    if (!githubRepository) {
+/**
+ * Fetches the newest published release of the configured repository.
+ * Resolves to null when the repository has no published release at all, and
+ * throws for every other unsuccessful response.
+ * @param {{ apiBase?: string, fetchImpl?: typeof fetch }} [options]
+ * @returns {Promise<{ tagName: string, name: string, htmlUrl: string, publishedAt: string | null, assets: Array<{ name: string, url: string, size: number }> } | null>}
+ */
+export async function fetchLatestRelease({ apiBase = process.env.LUKER_GITHUB_API_BASE || 'https://api.github.com', fetchImpl = globalThis.fetch } = {}) {
+    const repository = getGitHubRepository();
+    if (!repository) {
         throw new Error('GitHub repository metadata is unavailable.');
     }
 
-    const { owner, repo } = githubRepository;
-    const releaseApiUrl = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
-    const response = await fetch(releaseApiUrl, {
+    const base = String(apiBase).replace(/\/+$/, '');
+    const releaseApiUrl = `${base}/repos/${repository.owner}/${repository.repo}/releases/latest`;
+    const response = await fetchImpl(releaseApiUrl, {
         method: 'GET',
         headers: {
             Accept: 'application/vnd.github+json',
@@ -375,30 +392,82 @@ export async function fetchLatestApkReleaseInfo() {
         },
     });
 
+    if (response.status === 404) {
+        return null;
+    }
+
     if (!response.ok) {
-        throw new Error(`Failed to query latest GitHub release (${response.status}).`);
+        throw new Error(`Failed to query the latest GitHub release (${response.status}).`);
     }
 
     const payload = await response.json();
     const assets = Array.isArray(payload?.assets) ? payload.assets : [];
-    const apkAsset = assets.find(asset =>
-        typeof asset?.name === 'string'
-        && typeof asset?.browser_download_url === 'string'
-        && asset.name.toLowerCase().endsWith('.apk'));
+
+    return {
+        tagName: String(payload?.tag_name || ''),
+        name: String(payload?.name || ''),
+        htmlUrl: String(payload?.html_url || ''),
+        publishedAt: payload?.published_at || null,
+        assets: assets.map(asset => ({
+            name: String(asset?.name || ''),
+            url: String(asset?.browser_download_url || ''),
+            size: Number(asset?.size) || 0,
+        })),
+    };
+}
+
+const DESKTOP_OS_NAMES = { darwin: 'mac', win32: 'win' };
+const DESKTOP_INSTALLER_EXTENSIONS = ['.dmg', '.exe', '.zip'];
+
+/**
+ * Picks the release asset built for the requested desktop platform and
+ * architecture, preferring an installer over an archive. Resolves to null when
+ * the release carries no asset for that platform and architecture.
+ * @param {Array<{ name: string, url: string, size: number }>} assets
+ * @param {string} platform
+ * @param {string} arch
+ * @returns {{ name: string, url: string, size: number } | null}
+ */
+export function selectDesktopAsset(assets, platform, arch) {
+    const osName = DESKTOP_OS_NAMES[platform];
+    if (!osName) {
+        return null;
+    }
+
+    const suffix = `-${osName}-${arch}`;
+    for (const extension of DESKTOP_INSTALLER_EXTENSIONS) {
+        const asset = assets.find(candidate =>
+            candidate.name.toLowerCase().endsWith(`${suffix}${extension}`));
+        if (asset) {
+            return { name: asset.name, url: asset.url, size: asset.size };
+        }
+    }
+
+    return null;
+}
+
+export async function fetchLatestApkReleaseInfo() {
+    const release = await fetchLatestRelease();
+    if (!release) {
+        throw new Error('The repository has no published release.');
+    }
+
+    const apkAsset = release.assets.find(asset =>
+        asset.url && asset.name.toLowerCase().endsWith('.apk'));
 
     if (!apkAsset) {
         throw new Error('Latest release does not contain an APK asset.');
     }
 
     return {
-        tagName: String(payload.tag_name || ''),
-        name: String(payload.name || ''),
-        htmlUrl: String(payload.html_url || ''),
-        publishedAt: payload.published_at || null,
+        tagName: release.tagName,
+        name: release.name,
+        htmlUrl: release.htmlUrl,
+        publishedAt: release.publishedAt,
         apk: {
-            name: String(apkAsset.name || ''),
-            url: String(apkAsset.browser_download_url || ''),
-            size: Number(apkAsset.size) || 0,
+            name: apkAsset.name,
+            url: apkAsset.url,
+            size: apkAsset.size,
         },
     };
 }

@@ -23,6 +23,7 @@ import { LOG_LEVELS, CHAT_COMPLETION_SOURCES, MEDIA_REQUEST_TYPE } from './const
 import { serverDirectory } from './server-directory.js';
 import { sync as writeFileAtomicSync } from 'write-file-atomic';
 import { isFirefox } from './express-common.js';
+import { fetchLatestRelease } from './updater.js';
 
 /**
  * Parsed config object.
@@ -210,46 +211,44 @@ export async function getVersion() {
 }
 
 /**
- * Checks GitHub for the latest release tag and determines if an update is available.
+ * Checks the newest published release and determines if an update is available.
  * Returns immediately, without touching the network, when the check is disabled via
  * the disableUpdateCheck configuration key or its LUKER_ / SILLYTAVERN_ environment
- * override.
- * @returns {Promise<{isLatest: boolean, updateCheckDisabled?: boolean}>} Update info
+ * override. A failed probe resolves to a failure marker instead of rejecting.
+ * @returns {Promise<{isLatest: boolean, updateCheckDisabled?: boolean, updateCheckFailed?: boolean, updateCheckError?: string, tagName?: string, htmlUrl?: string}>} Update info
  */
 export async function checkRemoteVersion() {
     if (isUpdateCheckDisabled()) {
         return { isLatest: true, updateCheckDisabled: true };
     }
 
-    let isLatest = true;
     try {
         const require = createRequire(import.meta.url);
         const pkgJson = require(path.join(serverDirectory, './package.json'));
         const pkgVersion = pkgJson.version;
-        if (commandExistsSync('git')) {
-            const git = simpleGit({ baseDir: serverDirectory });
-            let remoteTags = '';
-            try {
-                remoteTags = await git.listRemote(['--tags', 'origin']);
-            } catch {
-                const remoteUrl = String(process.env.LUKER_UPDATE_REMOTE || 'https://github.com/funnycups/Luker.git').trim();
-                if (remoteUrl) {
-                    try {
-                        remoteTags = await simpleGit().listRemote(['--tags', remoteUrl]);
-                    } catch {
-                        // Silent fallback by design.
-                    }
-                }
-            }
-            const latestTaggedVersion = findLatestVersionFromRemoteTags(remoteTags);
-            if (latestTaggedVersion) {
-                isLatest = compareSemver(pkgVersion, latestTaggedVersion) >= 0;
-            }
+
+        const release = await fetchLatestRelease();
+        if (!release) {
+            return { isLatest: true };
         }
-    } catch {
-        // suppress exception
+
+        return {
+            isLatest: compareSemver(pkgVersion, release.tagName) >= 0,
+            tagName: release.tagName,
+            htmlUrl: release.htmlUrl,
+        };
+    } catch (error) {
+        // The front end deliberately shows no failure UI for an update check,
+        // so an unreachable or rate-limited release host would otherwise be
+        // invisible to both the user and the operator. An unreachable release
+        // host is expected and non-fatal, so a warning is the right level.
+        console.warn('Update check failed:', error?.message || error);
+        return {
+            isLatest: true,
+            updateCheckFailed: true,
+            updateCheckError: String(error?.message || error),
+        };
     }
-    return { isLatest };
 }
 
 /**
@@ -358,34 +357,6 @@ function compareSemver(a, b) {
     }
 
     return comparePrereleaseIdentifiers(pa.prerelease, pb.prerelease);
-}
-
-/**
- * @param {string} remoteTagsRaw
- * @returns {string | null}
- */
-function findLatestVersionFromRemoteTags(remoteTagsRaw) {
-    const lines = String(remoteTagsRaw || '').split('\n');
-    /** @type {string[]} */
-    const versions = [];
-    for (const line of lines) {
-        const ref = line.split('\t')[1] || '';
-        if (!ref.startsWith('refs/tags/')) {
-            continue;
-        }
-        const tag = ref
-            .replace(/^refs\/tags\//, '')
-            .replace(/\^\{\}$/, '')
-            .trim();
-        if (parseSemverLikeVersion(tag)) {
-            versions.push(tag);
-        }
-    }
-    if (versions.length === 0) {
-        return null;
-    }
-    versions.sort((a, b) => compareSemver(a, b));
-    return versions[versions.length - 1] || null;
 }
 
 /**
