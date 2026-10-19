@@ -1,5 +1,6 @@
+// The sqlite engine is imported lazily inside initStorage(): its module graph
+// pulls in better-sqlite3, a native addon, and fs mode must not dlopen it.
 import { FsEngine } from './engines/fs-engine.js';
-import { SqliteEngine } from './engines/sqlite-engine.js';
 import { MysqlEngine } from './engines/mysql-engine.js';
 import { PgEngine } from './engines/postgres-engine.js';
 import { ChatRepo } from './repositories/chat-repo.js';
@@ -21,7 +22,7 @@ let _namedDocRepo = null;
 let _groupRepo = null;
 let _statsRepo = null;
 
-export function initStorage({
+export async function initStorage({
     mode = 'fs',
     directoriesByHandle,
     mysql,
@@ -32,6 +33,7 @@ export function initStorage({
     if (mode === 'fs') {
         _engine = new FsEngine({ directoriesByHandle });
     } else if (mode === 'sqlite') {
+        const { SqliteEngine } = await import('./engines/sqlite-engine.js');
         _engine = new SqliteEngine({ directoriesByHandle });
     } else if (mode === 'mysql') {
         if (!mysql || typeof mysql.url !== 'string' || !mysql.url) {

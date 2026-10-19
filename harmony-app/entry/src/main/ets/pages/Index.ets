@@ -351,7 +351,7 @@ struct Index {
           .javaScriptProxy({
             object: this.bridge,
             name: 'LukerHarmony',
-            methodList: ['setGenerationActive', 'setImmersiveModeEnabled'],
+            methodList: ['setGenerationActive', 'setImmersiveModeEnabled', 'openExternalUrl'],
             controller: this.controller
           })
           .onControllerAttached(() => {

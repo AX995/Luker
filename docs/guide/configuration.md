@@ -208,6 +208,8 @@ Switching backends requires running the migration tool first; the admin panel ex
 
 A headless equivalent of the admin panel migration is available at `node scripts/storage-migrate.js --from fs --to sqlite` (and the reverse).
 
+The desktop app supports only the `fs`, `mysql`, and `postgres` backends.
+
 ## Other Settings
 
 ```yaml

@@ -204,7 +204,7 @@ export async function makeEndpointHarness({ mode, mount, profile, extraHandles }
         precreateCommonDirs(factory.extraDirs[h]);
     }
 
-    initStorage({
+    await initStorage({
         mode,
         directoriesByHandle: factory.directoriesByHandle,
         mysql: factory.mysqlUrl ? { url: factory.mysqlUrl } : null,
@@ -236,7 +236,7 @@ export async function makeEndpointHarness({ mode, mount, profile, extraHandles }
         if (current && typeof current.close === 'function') {
             await current.close();
         }
-        initStorage({
+        await initStorage({
             mode,
             directoriesByHandle: factory.directoriesByHandle,
             mysql: factory.mysqlUrl ? { url: factory.mysqlUrl } : null,

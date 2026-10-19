@@ -28,6 +28,8 @@ const FRONTEND_SCRATCH = resolve(REPO_ROOT, 'tests/.frontend-scratch');
 const FRONTEND_DATA = resolve(FRONTEND_SCRATCH, 'data');
 const FRONTEND_CONFIG = resolve(FRONTEND_SCRATCH, 'config.yaml');
 const INCLUDE_INTEGRATION = !!process.env.PW_INCLUDE_INTEGRATION;
+const INCLUDE_DESKTOP = !!process.env.PW_INCLUDE_DESKTOP;
+const INCLUDE_DESKTOP_PACKAGED = !!process.env.PW_INCLUDE_DESKTOP_PACKAGED;
 
 /**
  * Reserve an OS-assigned free port for the integration webServer. The
@@ -56,7 +58,7 @@ const projects = [
     {
         name: 'e2e',
         testMatch: ['e2e/**/*.e2e.js'],
-        testIgnore: ['**/_lib/**', '**/_fixtures/**', '**/.e2e-scratch/**', '**/node_modules/**'],
+        testIgnore: ['**/_lib/**', '**/_fixtures/**', '**/.e2e-scratch/**', '**/node_modules/**', '**/desktop/**'],
     },
 ];
 
@@ -73,6 +75,24 @@ if (INCLUDE_INTEGRATION) {
             testIgnore: ['**/node_modules/**'],
         },
     );
+}
+
+if (INCLUDE_DESKTOP) {
+    projects.push({
+        name: 'desktop',
+        testMatch: ['e2e/desktop/**/*.e2e.js'],
+        testIgnore: ['**/_lib/**', '**/.e2e-scratch/**', '**/node_modules/**', 'e2e/desktop/04-packaged.e2e.js'],
+    });
+}
+
+// The packaged suite drives the built artifact instead of the checkout, so it
+// carries its own gate: it needs `desktop-app/dist` to exist first.
+if (INCLUDE_DESKTOP_PACKAGED) {
+    projects.push({
+        name: 'desktop-packaged',
+        testMatch: ['desktop/04-packaged.e2e.js'],
+        testIgnore: ['**/_lib/**', '**/.e2e-scratch/**', '**/node_modules/**'],
+    });
 }
 
 let baseURL = process.env.ST_BASE_URL || process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8000';

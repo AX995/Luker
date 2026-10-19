@@ -1,4 +1,4 @@
-import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
+import { common, wantAgent, Want, WantAgent } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { notificationManager } from '@kit.NotificationKit';
@@ -44,6 +44,12 @@ export class KeepAliveManager {
   static attach(context: common.UIAbilityContext): void {
     KeepAliveManager.context = context;
     KeepAliveManager.installListeners();
+  }
+
+  // The ability context is attached in `onCreate`, before the page that hosts
+  // the bridge is loaded, so it is always present when the bridge runs.
+  static getAbilityContext(): common.UIAbilityContext {
+    return KeepAliveManager.context as common.UIAbilityContext;
   }
 
   static setGenerationActive(active: boolean): void {
@@ -249,5 +255,18 @@ export class LukerHarmonyBridge {
 
   setImmersiveModeEnabled(enabled: boolean): void {
     ImmersiveManager.setEnabled(enabled === true);
+  }
+
+  openExternalUrl(url: string): void {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return;
+    }
+    const want: Want = {
+      action: 'ohos.want.action.viewData',
+      uri: url,
+    };
+    KeepAliveManager.getAbilityContext().startAbility(want).catch((err: BusinessError) => {
+      hilog.error(DOMAIN, TAG, 'openExternalUrl failed: %{public}d %{public}s', err.code, err.message);
+    });
   }
 }

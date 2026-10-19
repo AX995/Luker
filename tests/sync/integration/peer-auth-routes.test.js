@@ -137,7 +137,7 @@ describe('persisted peer credentials — routes', () => {
         ({ getPasswordHash, getPasswordSalt, initUserStorage, toKey, getUserDirectories } = usersMod);
         ({ initStorage } = storageMod);
         await initUserStorage(TEST_DATA_ROOT);
-        initStorage({
+        await initStorage({
             mode: 'fs',
             directoriesByHandle: (h) => getUserDirectories(h),
         });

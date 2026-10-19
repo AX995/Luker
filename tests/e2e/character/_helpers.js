@@ -193,6 +193,7 @@ function buildAshCard(overrides = {}) {
         tags: card.tags,
         creator: card.creator,
         character_version: card.character_version,
+        chat: card.chat,
         data: {
             name: card.name,
             description: card.description,

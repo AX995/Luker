@@ -1542,6 +1542,16 @@ function hasAndroidUpdateBridge() {
         && typeof window.LukerAndroid.installApkFromUrl === 'function';
 }
 
+function hasDesktopUpdateBridge() {
+    return typeof window !== 'undefined'
+        && typeof window.LukerDesktop?.installUpdateFromUrl === 'function';
+}
+
+function hasHarmonyUpdateBridge() {
+    return typeof window !== 'undefined'
+        && typeof window.LukerHarmony?.openExternalUrl === 'function';
+}
+
 async function callLukerUpdateApi(path, payload = {}) {
     const response = await fetch(`/api/users/update/${path}`, {
         method: 'POST',
@@ -1742,6 +1752,57 @@ async function runAndroidApkUpdateFlow() {
     });
 }
 
+async function runDesktopUpdateFlow() {
+    if (!hasDesktopUpdateBridge()) {
+        throw new Error(t`Desktop update bridge is unavailable.`);
+    }
+
+    const platform = String(window.LukerDesktop?.platform || '');
+    const arch = String(window.LukerDesktop?.arch || '');
+
+    await showUpdateProgressPopup(t`Luker App Update`, async ({ pushLog, setStatus }) => {
+        setStatus(t`Fetching the latest desktop release...`);
+        const release = await callLukerUpdateApi('desktop-latest', { platform, arch });
+        const assetName = String(release?.asset?.name || '');
+        const assetUrl = String(release?.asset?.url || '');
+        const tagName = String(release?.tagName || '');
+
+        if (!assetName || !assetUrl) {
+            throw new Error(t`Latest release does not include a valid desktop installer.`);
+        }
+
+        pushLog(tagName ? `${t`Release`}: ${tagName}` : t`Release metadata loaded.`);
+        pushLog(`${t`Installer`}: ${assetName}`);
+
+        window.LukerDesktop.onUpdateProgress((progress) => {
+            const received = Number(progress?.received) || 0;
+            const total = Number(progress?.total) || 0;
+            pushLog(`${t`Downloading`}: ${received}/${total}`);
+        });
+
+        setStatus(t`Starting update download...`);
+        const result = await window.LukerDesktop.installUpdateFromUrl(assetUrl, assetName);
+        const savedPath = String(result?.path || '');
+        if (savedPath) {
+            pushLog(`${t`Saved`}: ${savedPath}`);
+        }
+        setStatus(t`Installer handoff started.`);
+    });
+}
+
+async function runHarmonyReleasePageFlow(versionData) {
+    if (!hasHarmonyUpdateBridge()) {
+        throw new Error(t`HarmonyOS update bridge is unavailable.`);
+    }
+
+    const htmlUrl = String(versionData?.htmlUrl || '');
+    if (!htmlUrl) {
+        throw new Error(t`Latest release does not include a release page URL.`);
+    }
+
+    window.LukerHarmony.openExternalUrl(htmlUrl);
+}
+
 async function showLukerUpdatePrompt(versionData) {
     if (lukerUpdatePromptShown) {
         return;
@@ -1751,9 +1812,16 @@ async function showLukerUpdatePrompt(versionData) {
     try {
         const branch = String(versionData.gitBranch || '').trim();
         const revision = String(versionData.gitRevision || '').trim();
-        const environmentText = hasAndroidUpdateBridge()
-            ? t`This instance is running inside the Android app.`
-            : t`This instance is running in Node.js server mode.`;
+        const environmentText = hasDesktopUpdateBridge()
+            ? t`This instance is running inside the desktop app.`
+            : hasAndroidUpdateBridge()
+                ? t`This instance is running inside the Android app.`
+                : hasHarmonyUpdateBridge()
+                    ? t`This instance is running inside the HarmonyOS app.`
+                    : t`This instance is running in Node.js server mode.`;
+        const usesNativeUpdateBridge = hasDesktopUpdateBridge()
+            || hasAndroidUpdateBridge()
+            || hasHarmonyUpdateBridge();
         const branchText = branch ? `${branch}${revision ? ` @ ${revision}` : ''}` : t`unknown branch`;
         const promptBody = `
             <div class="justifyLeft">
@@ -1764,7 +1832,7 @@ async function showLukerUpdatePrompt(versionData) {
         `;
 
         const result = await callGenericPopup(promptBody, POPUP_TYPE.CONFIRM, '', {
-            okButton: hasAndroidUpdateBridge() ? t`Download Update` : t`Update Now`,
+            okButton: usesNativeUpdateBridge ? t`Download Update` : t`Update Now`,
             cancelButton: t`Later`,
             wide: true,
             large: false,
@@ -1775,8 +1843,12 @@ async function showLukerUpdatePrompt(versionData) {
             return;
         }
 
-        if (hasAndroidUpdateBridge()) {
+        if (hasDesktopUpdateBridge()) {
+            await runDesktopUpdateFlow();
+        } else if (hasAndroidUpdateBridge()) {
             await runAndroidApkUpdateFlow();
+        } else if (hasHarmonyUpdateBridge()) {
+            await runHarmonyReleasePageFlow(versionData);
         } else {
             await runServerGitUpdateFlow();
         }

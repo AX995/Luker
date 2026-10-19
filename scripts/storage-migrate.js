@@ -552,7 +552,7 @@ export async function runFromZip({ args, dataRoot, getAllUserHandles, getUserDir
 
     // Initialize the LIVE engine from config.yaml.
     await initUserStorage(dataRoot);
-    initStorage({
+    await initStorage({
         mode: getConfigValue('storage.mode', 'fs'),
         directoriesByHandle: getUserDirectories,
         mysql: getConfigValue('storage.mysql', null),

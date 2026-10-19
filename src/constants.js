@@ -20,6 +20,10 @@ export function setServerPluginsDirectory(directory) {
     SERVER_PLUGINS_DIRECTORY = directory;
 }
 
+export function setBackupsDirectory(directory) {
+    PUBLIC_DIRECTORIES.backups = directory;
+}
+
 export const SETTINGS_FILE = 'settings.json';
 
 /**

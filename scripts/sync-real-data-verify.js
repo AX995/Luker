@@ -247,7 +247,7 @@ async function main() {
     // no-op in fs mode, which is the most-deployed configuration). The
     // engine is a process-global; one initStorage call per process is
     // enough.
-    initStorage({
+    await initStorage({
         mode: 'fs',
         directoriesByHandle: (h) => {
             if (h === 'aHandle') return buildDirs(A_ROOT);

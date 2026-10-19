@@ -19,7 +19,7 @@ const mockState = {
 
 jest.unstable_mockModule('../../src/storage/index.js', () => ({
     getStorageEngine: () => ({ kind: 'fs', close: async () => {} }),
-    initStorage: () => { mockState.initStorageCalled = true; },
+    initStorage: async () => { mockState.initStorageCalled = true; },
     isReadOnly: () => false,
     setReadOnly: () => {},
     // Stubs for names destructured by content-manager.js (transitively imported

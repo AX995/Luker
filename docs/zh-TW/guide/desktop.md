@@ -1,0 +1,86 @@
+---
+description: Luker 提供桌面版應用，讓 macOS 與 Windows 使用者以獨立應用的形式執行完整的 Luker 服務與介面。指南說明下載、安裝、首次啟動的系統安全提示放行，以及資料目錄位置。
+---
+
+# Desktop App
+
+Luker 提供桌面版應用，讓 macOS 與 Windows 使用者以獨立應用的形式執行完整的 Luker 服務與介面。開啟應用即可直接顯示完整的 Luker 介面，不需要另外使用瀏覽器存取地址。
+
+## 下載方式
+
+前往 GitHub Releases 頁面下載最新版：
+
+👉 [https://github.com/funnycups/Luker/releases/latest](https://github.com/funnycups/Luker/releases/latest)
+
+發佈版本同時提供 macOS 與 Windows 的安裝包與壓縮檔，檔名包含版本、平台與架構，例如 `Luker-2.8.0-mac-arm64.dmg`。
+
+| 檔名 | 說明 |
+| --- | --- |
+| `Luker-<version>-mac-<arch>.dmg` | macOS 磁碟映像，把應用拖入「應用程式」資料夾 |
+| `Luker-<version>-mac-<arch>.zip` | macOS 壓縮檔，內容相同，解壓縮到任意位置即可 |
+| `Luker-<version>-win-<arch>.exe` | Windows 安裝包，安裝應用並建立捷徑 |
+| `Luker-<version>-win-<arch>.zip` | Windows 免安裝壓縮檔，解壓縮後直接執行 |
+
+`<arch>` 在 Apple Silicon 上為 `arm64`，在 Intel Mac 與 64 位元 Windows 上為 `x64`。請選擇與你的裝置匹配的檔案。
+
+## 安裝
+
+安裝包與壓縮包任選其一即可。
+
+### macOS
+
+- **`.dmg`**：開啟後把 **Luker** 拖入「應用程式」資料夾。
+- **`.zip`**：解壓縮後把 `Luker.app` 移入「應用程式」資料夾。
+
+### Windows
+
+- **`.exe`**：執行後依安裝精靈操作。
+- **`.zip`**：解壓縮後直接執行資料夾裡的 `Luker.exe`。
+
+## 首次啟動
+
+應用未使用付費程式碼簽章憑證，因此 macOS 與 Windows 在首次開啟時都會顯示安全提示。這是正常現象，放行後應用即可正常執行。
+
+### macOS
+
+macOS 會以無法驗證應用為由阻止首次啟動。前往**系統設定** → **隱私權與安全性**，找到關於 Luker 的提示，點擊**仍要打開**，並在隨後的對話框中確認。
+
+### Windows
+
+SmartScreen 會顯示「Windows 已保護您的電腦」視窗，發行者顯示為未知。點擊**其他資訊**，再點擊**仍要執行**。
+
+## 資料目錄
+
+應用把自身資料全部存放在同一個目錄下：
+
+| 平台 | 位置 |
+| --- | --- |
+| macOS | `~/Library/Application Support/Luker` |
+| Windows | `%APPDATA%\Luker` |
+
+目錄內的內容：
+
+- `config.yaml`：伺服器設定檔
+- `data/`：聊天、預設、世界書的儲存根目錄
+- `backups/`：聊天備份
+- `plugins/`：伺服器端外掛
+- `extensions/third-party/`：第三方擴充
+- `updates/`：透過應用內更新提示下載的更新
+
+## 儲存後端
+
+桌面版支援 `fs`、`mysql`、`postgres` 儲存後端。`sqlite` 後端不受支援，本機儲存請使用 `fs`。
+
+## 從原始碼執行
+
+在程式碼倉庫中執行 `npm run start:electron` 會以倉庫裡的程式碼啟動同一個應用。它使用與安裝版相同的資料目錄，而不是倉庫裡的 `./data`，因此寫入的設定、聊天與預設互相可見。
+
+## 更新
+
+有新版本時，應用會在介面裡顯示更新提示。點擊**下載更新**會把當前平台的安裝包下載到 `updates/` 目錄，並交給系統安裝程式。
+
+## 相關頁面
+
+- [快速開始](/zh-TW/guide/getting-started) — 完整的安裝指南
+- [基礎設定](/zh-TW/guide/configuration) — 設定項說明
+- [儲存後端](/zh-TW/guide/configuration#儲存後端) — 伺服器支援的儲存後端

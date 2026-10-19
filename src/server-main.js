@@ -130,6 +130,7 @@ import {
     SERVER_PLUGINS_DIRECTORY,
     setGlobalExtensionsDirectory,
     setServerPluginsDirectory,
+    setBackupsDirectory,
 } from './constants.js';
 
 // Routers
@@ -160,6 +161,7 @@ const cliArgs = globalThis.COMMAND_LINE_ARGS;
 
 setGlobalExtensionsDirectory(cliArgs.globalExtensionsPath);
 setServerPluginsDirectory(cliArgs.serverPluginsPath);
+setBackupsDirectory(cliArgs.backupsPath);
 
 if (!cliArgs.enableIPv6 && !cliArgs.enableIPv4) {
     console.error('error: You can\'t disable all internet protocols: at least IPv6 or IPv4 must be enabled.');

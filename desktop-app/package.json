@@ -1,0 +1,79 @@
+{
+  "name": "luker-desktop",
+  "productName": "Luker",
+  "version": "1.0.0",
+  "description": "Luker desktop client",
+  "license": "AGPL-3.0",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "prepare:backend": "node scripts/prepare-backend.mjs",
+    "build:mac": "node scripts/build-desktop.mjs mac",
+    "build:win": "node scripts/build-desktop.mjs win"
+  },
+  "devDependencies": {
+    "electron": "^41.1.1",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.luker.desktop",
+    "productName": "Luker",
+    "artifactName": "Luker-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".staging/luker",
+        "to": "luker"
+      },
+      {
+        "from": ".staging/luker/node_modules",
+        "to": "luker/node_modules"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "identity": "-"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    }
+  }
+}

@@ -208,6 +208,8 @@ Luker 支持多种用户数据持久化后端，由 `mode` 选择；只有匹配
 
 无图形界面时，可用 `node scripts/storage-migrate.js --from fs --to sqlite`（以及反向方向）跑同样的迁移流程。
 
+桌面版仅支持 `fs`、`mysql`、`postgres` 后端。
+
 ## 其他配置
 
 ```yaml

@@ -10,8 +10,8 @@ import { initStorage } from '../src/storage/index.js';
 const tempRoots = [];
 const directoriesByHandle = new Map();
 
-beforeAll(() => {
-    initStorage({
+beforeAll(async () => {
+    await initStorage({
         directoriesByHandle: (handle) => {
             const dirs = directoriesByHandle.get(handle);
             if (!dirs) throw new Error(`unknown handle ${handle}`);

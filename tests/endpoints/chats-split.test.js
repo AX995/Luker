@@ -49,7 +49,7 @@ beforeEach(async () => {
         getChatRepo: () => fakeRepo,
         getGroupRepo: () => ({}),
         getStorageEngine: () => ({ kind: 'fs', close: async () => {} }),
-        initStorage: () => {},
+        initStorage: async () => {},
         getWorldInfoRepo: () => ({}),
         getPersonaRepo: () => ({}),
         getCharacterRepo: () => ({}),

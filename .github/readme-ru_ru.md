@@ -16,6 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
+[![Desktop app](https://img.shields.io/badge/download-Windows%20%26%20macOS-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
 
 </div>
 
@@ -92,6 +93,12 @@ Luker построен на базе [SillyTavern](https://github.com/SillyTaver
 
 → [Руководство по приложению для HarmonyOS](https://luker.cups.moe/guide/harmonyos)
 
+### Нативное приложение для десктопа — Windows и macOS
+
+Бэкенд Luker также работает *внутри* упакованного приложения для десктопа. Скачайте установщик или архив для своей платформы со страницы Releases, откройте его и разрешите предупреждение безопасности при первом запуске — полноценный сервер вместе с интерфейсом заработает в нативном окне, без терминала, без ручной установки Node и без проброса портов.
+
+→ [Руководство по приложению для десктопа](https://luker.cups.moe/guide/desktop)
+
 ### Поисковые инструменты — персонажи умеют искать в сети
 
 Дайте LLM-писателю инструмент живого веб-поиска (DuckDuckGo, SearXNG, Brave) или запустите поискового агента перед генерацией, который запишет результаты в информацию о мире ещё до начала ответа. В основе — настоящие поисковые системы, а не просто попытка вспомнить что-то из обучающих данных.
@@ -150,6 +157,7 @@ Luker построен на базе [SillyTavern](https://github.com/SillyTaver
 ## Начало работы
 
 - **Десктоп (Node.js)** — `git clone https://github.com/funnycups/Luker.git && cd Luker && npm install && node server.js`. Требуется Node.js 24 или новее. → [Начало работы](https://luker.cups.moe/guide/getting-started)
+- **Десктоп-приложение** — скачайте установщик или архив для своей платформы со страницы [Releases](https://github.com/funnycups/Luker/releases) и установите. → [Руководство по приложению для десктопа](https://luker.cups.moe/guide/desktop)
 - **Android APK** — скачайте последний подписанный APK со страницы [Releases](https://github.com/funnycups/Luker/releases) и установите. → [Руководство по приложению для Android](https://luker.cups.moe/guide/android)
 - **HarmonyOS HAP** — соберите неподписанный HAP из исходного кода, подпишите его своим аккаунтом разработчика Huawei и установите. → [Руководство по приложению для HarmonyOS](https://luker.cups.moe/guide/harmonyos)
 - **Docker** — `docker compose up` с использованием compose-файла в корне репозитория. → [Начало работы](https://luker.cups.moe/guide/getting-started)

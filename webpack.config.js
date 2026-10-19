@@ -18,9 +18,10 @@ const webpackVersion = createRequire(import.meta.url)('webpack/package.json').ve
  * @returns {string} The cache version string.
  */
 function getWebpackCacheVersion() {
-    return crypto.createHash('shake256', { outputLength: 8 })
+    return crypto.createHash('sha256')
         .update(JSON.stringify([appVersion.pkgVersion, appVersion.gitRevision, webpackVersion]))
-        .digest('hex');
+        .digest('hex')
+        .slice(0, 16);
 }
 
 /**

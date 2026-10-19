@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 FunnyCups (https://github.com/funnycups)
+
+name: Build Desktop Client
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: Build type to run manually
+        required: true
+        default: debug
+        type: choice
+        options:
+          - debug
+          - release
+  push:
+    branches:
+      - "**"
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    if: github.repository == 'funnycups/Luker'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Validate tag matches app version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${TAG_VERSION}" != "${PKG_VERSION}" ]]; then
+            echo "Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})." >&2
+            exit 1
+          fi
+
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Install desktop dependencies
+        working-directory: desktop-app
+        run: npm install --ignore-scripts=false
+
+      - name: Build mac artifacts
+        working-directory: desktop-app
+        run: node scripts/build-desktop.mjs mac
+
+      - name: Upload mac artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-macos-${{ github.sha }}
+          path: |
+            desktop-app/dist/Luker-*-mac-*.dmg
+            desktop-app/dist/Luker-*-mac-*.zip
+
+      - name: Publish release assets
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            desktop-app/dist/Luker-*-mac-*.dmg
+            desktop-app/dist/Luker-*-mac-*.zip
+            desktop-app/dist/Luker-*-win-*.exe
+            desktop-app/dist/Luker-*-win-*.zip
+
+  build-windows:
+    if: github.repository == 'funnycups/Luker'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Validate tag matches app version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${TAG_VERSION}" != "${PKG_VERSION}" ]]; then
+            echo "Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})." >&2
+            exit 1
+          fi
+
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Install desktop dependencies
+        working-directory: desktop-app
+        run: npm install --ignore-scripts=false
+
+      - name: Build Windows artifacts
+        working-directory: desktop-app
+        run: node scripts/build-desktop.mjs win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-windows-${{ github.sha }}
+          path: |
+            desktop-app/dist/Luker-*-win-*.exe
+            desktop-app/dist/Luker-*-win-*.zip
+
+      - name: Publish release assets
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            desktop-app/dist/Luker-*-mac-*.dmg
+            desktop-app/dist/Luker-*-mac-*.zip
+            desktop-app/dist/Luker-*-win-*.exe
+            desktop-app/dist/Luker-*-win-*.zip

@@ -26,57 +26,57 @@ describe('initStorage mode switch', () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('default mode is fs (FsEngine)', () => {
-        initStorage({ directoriesByHandle: () => ({ root: tmpDir }) });
+    test('default mode is fs (FsEngine)', async () => {
+        await initStorage({ directoriesByHandle: () => ({ root: tmpDir }) });
         expect(getStorageEngine()).toBeInstanceOf(FsEngine);
     });
 
-    test('mode: "fs" picks FsEngine', () => {
-        initStorage({ mode: 'fs', directoriesByHandle: () => ({ root: tmpDir }) });
+    test('mode: "fs" picks FsEngine', async () => {
+        await initStorage({ mode: 'fs', directoriesByHandle: () => ({ root: tmpDir }) });
         expect(getStorageEngine()).toBeInstanceOf(FsEngine);
     });
 
-    test('mode: "sqlite" picks SqliteEngine', () => {
-        initStorage({ mode: 'sqlite', directoriesByHandle: () => ({ root: tmpDir }) });
+    test('mode: "sqlite" picks SqliteEngine', async () => {
+        await initStorage({ mode: 'sqlite', directoriesByHandle: () => ({ root: tmpDir }) });
         expect(getStorageEngine()).toBeInstanceOf(SqliteEngine);
         // Cleanup any db handle
         const e = getStorageEngine();
         e.close();
     });
 
-    test('mode: "unknown" throws', () => {
-        expect(() => initStorage({ mode: 'unknown', directoriesByHandle: () => ({ root: tmpDir }) }))
-            .toThrow(/unknown storage mode/);
+    test('mode: "unknown" throws', async () => {
+        await expect(initStorage({ mode: 'unknown', directoriesByHandle: () => ({ root: tmpDir }) }))
+            .rejects.toThrow(/unknown storage mode/);
     });
 
-    test('re-init replaces engine', () => {
-        initStorage({ mode: 'fs', directoriesByHandle: () => ({ root: tmpDir }) });
+    test('re-init replaces engine', async () => {
+        await initStorage({ mode: 'fs', directoriesByHandle: () => ({ root: tmpDir }) });
         const e1 = getStorageEngine();
-        initStorage({ mode: 'sqlite', directoriesByHandle: () => ({ root: tmpDir }) });
+        await initStorage({ mode: 'sqlite', directoriesByHandle: () => ({ root: tmpDir }) });
         const e2 = getStorageEngine();
         expect(e1).not.toBe(e2);
         expect(e2).toBeInstanceOf(SqliteEngine);
         e2.close();
     });
 
-    test('mode: "mysql" without storage.mysql.url throws', () => {
-        expect(() => initStorage({ mode: 'mysql', directoriesByHandle: () => ({ root: tmpDir }) }))
-            .toThrow(/mode=mysql requires storage\.mysql\.url/);
-        expect(() => initStorage({
+    test('mode: "mysql" without storage.mysql.url throws', async () => {
+        await expect(initStorage({ mode: 'mysql', directoriesByHandle: () => ({ root: tmpDir }) }))
+            .rejects.toThrow(/mode=mysql requires storage\.mysql\.url/);
+        await expect(initStorage({
             mode: 'mysql',
             directoriesByHandle: () => ({ root: tmpDir }),
             mysql: {},
-        })).toThrow(/mode=mysql requires storage\.mysql\.url/);
+        })).rejects.toThrow(/mode=mysql requires storage\.mysql\.url/);
     });
 
-    test('mode: "postgres" without storage.postgres.url throws', () => {
-        expect(() => initStorage({ mode: 'postgres', directoriesByHandle: () => ({ root: tmpDir }) }))
-            .toThrow(/mode=postgres requires storage\.postgres\.url/);
-        expect(() => initStorage({
+    test('mode: "postgres" without storage.postgres.url throws', async () => {
+        await expect(initStorage({ mode: 'postgres', directoriesByHandle: () => ({ root: tmpDir }) }))
+            .rejects.toThrow(/mode=postgres requires storage\.postgres\.url/);
+        await expect(initStorage({
             mode: 'postgres',
             directoriesByHandle: () => ({ root: tmpDir }),
             postgres: {},
-        })).toThrow(/mode=postgres requires storage\.postgres\.url/);
+        })).rejects.toThrow(/mode=postgres requires storage\.postgres\.url/);
     });
 });
 
@@ -111,7 +111,7 @@ describeMysql('initStorage mode: "mysql" against live container', () => {
     });
 
     test('mode: "mysql" with storage.mysql.url picks MysqlEngine and pings', async () => {
-        initStorage({
+        await initStorage({
             mode: 'mysql',
             directoriesByHandle: () => ({ root: '/tmp' }),
             mysql: { url },
@@ -151,7 +151,7 @@ describePostgres('initStorage mode: "postgres" against live container', () => {
     });
 
     test('mode: "postgres" with storage.postgres.url picks PgEngine and pings', async () => {
-        initStorage({
+        await initStorage({
             mode: 'postgres',
             directoriesByHandle: () => ({ root: '/tmp' }),
             postgres: { url },

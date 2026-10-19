@@ -31,6 +31,7 @@ export const PORT_RANGES = {
     xmode:          { base: 8601, count: 8 }, // cross-mode-recovery specs need 2 servers per pair
     generation:     { base: 8621, count: 6 },
     'server-plugins': { base: 8661, count: 4 },
+    desktop:        { base: 8671, count: 6 },
 };
 
 /**

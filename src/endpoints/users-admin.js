@@ -35,7 +35,9 @@ import { DEFAULT_USER, PUBLIC_DIRECTORIES } from '../constants.js';
 import { clearCapturedLogs, getCapturedLogs } from '../log-capture.js';
 import {
     fetchLatestApkReleaseInfo,
+    fetchLatestRelease,
     getGitUpdateStatus,
+    selectDesktopAsset,
     startGitUpdate,
 } from '../updater.js';
 import {
@@ -288,6 +290,36 @@ router.post('/update/apk-latest', requireAdminMiddleware, async (_request, respo
         return response.json(release);
     } catch (error) {
         console.error('APK latest release fetch failed:', error);
+        return response.status(400).json({ error: String(error?.message || error) });
+    }
+});
+
+router.post('/update/desktop-latest', requireAdminMiddleware, async (request, response) => {
+    try {
+        const platform = String(request.body?.platform || '');
+        const arch = String(request.body?.arch || '');
+
+        const release = await fetchLatestRelease();
+        if (!release) {
+            return response.status(400).json({ error: 'The repository has no published release.' });
+        }
+
+        const asset = selectDesktopAsset(release.assets, platform, arch);
+        if (!asset) {
+            return response.status(400).json({
+                error: `Latest release does not include a desktop installer for ${platform}-${arch}.`,
+            });
+        }
+
+        return response.json({
+            tagName: release.tagName,
+            htmlName: release.name,
+            htmlUrl: release.htmlUrl,
+            publishedAt: release.publishedAt,
+            asset,
+        });
+    } catch (error) {
+        console.error('Desktop latest release fetch failed:', error);
         return response.status(400).json({ error: String(error?.message || error) });
     }
 });
@@ -1284,7 +1316,7 @@ router.post('/storage/migrate', requireAdminMiddleware, async (request, response
 
         // All users done — swap engine + persist config.
         const oldEngine = sourceEngine;
-        initStorage({
+        await initStorage({
             mode: targetMode,
             directoriesByHandle: getUserDirectories,
             mysql: mysqlConfig,

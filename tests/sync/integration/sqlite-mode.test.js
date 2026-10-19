@@ -110,7 +110,7 @@ function startListener(app) {
     });
 }
 
-function buildDualSqliteHarness() {
+async function buildDualSqliteHarness() {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'luker-sync-sqlite-mode-'));
     const aDir = path.join(dataRoot, 'alice');
     const bDir = path.join(dataRoot, 'bob');
@@ -119,7 +119,7 @@ function buildDualSqliteHarness() {
     precreateCommonDirs(aDirs);
     precreateCommonDirs(bDirs);
 
-    initStorage({
+    await initStorage({
         mode: 'sqlite',
         directoriesByHandle: (h) => {
             if (h === 'alice') return aDirs;
@@ -157,7 +157,7 @@ describe('SQLite-mode sync', () => {
     let H, aListener, bListener;
 
     beforeEach(async () => {
-        H = buildDualSqliteHarness();
+        H = await buildDualSqliteHarness();
         aListener = await startListener(H.aApp);
         bListener = await startListener(H.bApp);
     });

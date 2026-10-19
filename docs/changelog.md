@@ -48,6 +48,10 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 
 - Added a native HarmonyOS app that bundles the full Luker server and interface and runs standalone on the device, built from source and signed with your Huawei developer account. See the [HarmonyOS guide](/guide/harmonyos).
 
+### Desktop App
+
+- Added native Windows/macOS app support. See the [Desktop app guide](/guide/desktop).
+
 ### Memory Graph
 
 - Fixed Memory Graph schema iteration failing to apply valid node-type edits because the read tool exposed fields the set tool's schema does not accept.

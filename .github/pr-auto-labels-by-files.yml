@@ -42,5 +42,5 @@
     - "package-lock.json"
     - "tests/package.json"
     - "tests/package-lock.json"
-    - "src/electron/package.json"
-    - "src/electron/package-lock.json"
+    - "desktop-app/package.json"
+    - "desktop-app/package-lock.json"

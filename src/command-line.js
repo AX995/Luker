@@ -12,6 +12,7 @@ import { initConfig } from './config-init.js';
  * @property {string} configPath Path to the config file
  * @property {string} dataRoot Data root directory
  * @property {string} serverPluginsPath Server plugins directory
+ * @property {string} backupsPath Backups directory
  * @property {string} globalExtensionsPath Global third-party extensions directory
  * @property {number} port Port number
  * @property {boolean} listen If Luker is listening on all network interfaces
@@ -60,6 +61,7 @@ export class CommandLineParser {
             configPath: configPath,
             dataRoot: dataPath,
             serverPluginsPath: './plugins',
+            backupsPath: 'backups/',
             globalExtensionsPath: './public/scripts/extensions/third-party',
             port: 8000,
             listen: false,
@@ -223,6 +225,11 @@ export class CommandLineParser {
                 default: null,
                 describe: 'Directory for server plugins',
             })
+            .option('backupsPath', {
+                type: 'string',
+                default: null,
+                describe: 'Directory for backups',
+            })
             .option('globalExtensionsPath', {
                 type: 'string',
                 default: null,
@@ -311,6 +318,7 @@ export class CommandLineParser {
         }
 
         const serverPluginsPath = cliArguments.serverPluginsPath ?? getConfigValue('serverPluginsPath', defaultConfig.serverPluginsPath);
+        const backupsPath = cliArguments.backupsPath ?? getConfigValue('backupsPath', defaultConfig.backupsPath);
         const globalExtensionsPath = cliArguments.globalExtensionsPath ?? getConfigValue('globalExtensionsPath', defaultConfig.globalExtensionsPath);
 
         /** @type {CommandLineArguments} */
@@ -318,6 +326,7 @@ export class CommandLineParser {
             configPath: configPath,
             dataRoot: dataRoot,
             serverPluginsPath: serverPluginsPath,
+            backupsPath: backupsPath,
             globalExtensionsPath: globalExtensionsPath,
             port: cliArguments.port ?? getConfigValue('port', defaultConfig.port, 'number'),
             listen: cliArguments.listen ?? getConfigValue('listen', defaultConfig.listen, 'boolean'),

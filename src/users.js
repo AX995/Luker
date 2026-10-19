@@ -314,6 +314,18 @@ export async function getUserDirectoriesList() {
 }
 
 /**
+ * Gets the directory the legacy user data migration backs the moved files up
+ * into. The backups root is whatever `PUBLIC_DIRECTORIES.backups` currently
+ * holds, so a caller that redirects it to an absolute path gets an absolute
+ * backup directory instead of one anchored at the working directory.
+ * @param {Date} date The date the migration runs on
+ * @returns {string} The backup directory for that date
+ */
+export function getMigrationBackupDirectory(date = new Date()) {
+    return path.join(PUBLIC_DIRECTORIES.backups, '_migration', date.toISOString().split('T')[0]);
+}
+
+/**
  * Perform migration from the old user data format to the new one.
  */
 export async function migrateUserData() {
@@ -465,8 +477,7 @@ export async function migrateUserData() {
         },
     ];
 
-    const currentDate = new Date().toISOString().split('T')[0];
-    const backupDirectory = path.join(process.cwd(), PUBLIC_DIRECTORIES.backups, '_migration', currentDate);
+    const backupDirectory = getMigrationBackupDirectory();
 
     if (!fs.existsSync(backupDirectory)) {
         fs.mkdirSync(backupDirectory, { recursive: true });
@@ -1050,9 +1061,10 @@ async function basicUserLogin(request) {
  * @returns {string} Account version tag
  */
 export function getAccountVersion(user) {
-    return crypto.createHash('shake256', { outputLength: 8 })
+    return crypto.createHash('sha256')
         .update(JSON.stringify([user.handle, user.password, user.salt]))
-        .digest('hex');
+        .digest('hex')
+        .slice(0, 16);
 }
 
 /**

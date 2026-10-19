@@ -16,6 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
+[![Desktop app](https://img.shields.io/badge/download-Windows%20%26%20macOS-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
 
 </div>
 
@@ -92,6 +93,12 @@ The Luker backend also runs inside a HarmonyOS app. Build the HAP from source wi
 
 → [HarmonyOS app guide](https://luker.cups.moe/guide/harmonyos)
 
+### Native desktop app — Windows and macOS
+
+The Luker backend also runs *inside* a packaged desktop app. Download the installer or the archive for your platform from Releases, open it, allow it past the first-launch security prompt, and the full server and UI run in a native window — no terminal, no Node install, no port forwarding.
+
+→ [Desktop app guide](https://luker.cups.moe/guide/desktop)
+
 ### Search Tools — characters can search the web
 
 Give the writer LLM a live web-search tool (DuckDuckGo, SearXNG, Brave), or run a pre-request search agent that writes results into world info before the reply starts. Backed by real search engines, not just a training-data lookup.
@@ -150,6 +157,7 @@ A long tail of smaller conveniences rounds it out — grouping for presets and p
 ## Getting Started
 
 - **Desktop (Node.js)** — `git clone https://github.com/funnycups/Luker.git && cd Luker && npm install && node server.js`. Requires Node.js 24 or newer. → [Getting Started](https://luker.cups.moe/guide/getting-started)
+- **Desktop app** — grab the installer or the archive for your platform from the [Releases](https://github.com/funnycups/Luker/releases) page and install. → [Desktop app guide](https://luker.cups.moe/guide/desktop)
 - **Android APK** — grab the latest signed APK from the [Releases](https://github.com/funnycups/Luker/releases) page and install. → [Android app guide](https://luker.cups.moe/guide/android)
 - **HarmonyOS HAP** — build the unsigned HAP from source, sign it with your Huawei developer account, and install it. → [HarmonyOS app guide](https://luker.cups.moe/guide/harmonyos)
 - **Docker** — `docker compose up` using the compose file in the repository root. → [Getting Started](https://luker.cups.moe/guide/getting-started)
