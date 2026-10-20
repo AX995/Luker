@@ -106,15 +106,20 @@ export function shouldKeepCommit(commit, swipeMap) {
  * the chain only stays valid when the active replay path is contiguous —
  * see the module-level note on incremental patch semantics.
  *
+ * Root-level operations (`path: ''`) have no parent container to mutate,
+ * so they hand back a new document instead of editing in place; the
+ * returned document is adopted here. A root-level replace is emitted when
+ * a diff exceeds the patch-op threshold and gets collapsed into one.
+ *
  * @param {object[]} commits
  * @param {Object<number, number>} swipeMap
  * @returns {object} target state
  */
 export function computeTargetState(commits, swipeMap) {
-    const state = {};
+    let state = {};
     for (const commit of commits) {
         if (!shouldKeepCommit(commit, swipeMap)) continue;
-        applyPatch(state, commit.patches, false, true);
+        state = applyPatch(state, commit.patches, false, true).newDocument;
     }
     return state;
 }

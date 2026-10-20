@@ -192,6 +192,26 @@ describe('computeTargetState', () => {
         ];
         expect(computeTargetState(commits, { 0: 0, 1: 0 })).toEqual({ a: { c: 2 } });
     });
+
+    test('applies a root-level replace commit', () => {
+        // A diff that exceeds the op threshold is collapsed into a single
+        // root-level replace. A root operation has no parent container to
+        // mutate, so it hands back a new document instead of editing in
+        // place — replay has to adopt that document.
+        const commits = [
+            { floor: 0, swipeId: 0, patches: [{ op: 'add', path: '/a', value: 1 }] },
+            { floor: 1, swipeId: 0, patches: [{ op: 'replace', path: '', value: { b: 2 } }] },
+        ];
+        expect(computeTargetState(commits, { 0: 0, 1: 0 })).toEqual({ b: 2 });
+    });
+
+    test('applies a root-level remove commit', () => {
+        const commits = [
+            { floor: 0, swipeId: 0, patches: [{ op: 'add', path: '/a', value: 1 }] },
+            { floor: 1, swipeId: 0, patches: [{ op: 'remove', path: '' }] },
+        ];
+        expect(computeTargetState(commits, { 0: 0, 1: 0 })).toEqual({});
+    });
 });
 
 describe('truncateCommits', () => {
