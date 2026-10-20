@@ -73,6 +73,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 ### Background Keep-Alive
 
 - Fixed picture-in-picture keep-alive failing to start on iOS.
+- Fixed the background keep-alive failing to exit after a generation ended.
 
 ### Fixes
 

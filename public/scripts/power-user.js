@@ -32,6 +32,8 @@ import {
     extension_prompt_roles,
     deleteMessage,
     settingsReady,
+    isGenerationInFlight,
+    setGenerationInFlightListener,
 } from '../script.js';
 import { isMobile, initMovingUI, favsToHotswap } from './RossAscends-mods.js';
 import {
@@ -516,17 +518,24 @@ function syncMobileKeepAliveCheckbox() {
 }
 
 // Web audio and HarmonyOS keep-alive are generation-scoped: while the setting
-// is enabled, GENERATION_STARTED enters the mode (web audio builds the
+// is enabled, a generation in flight enters the mode (web audio builds the
 // oscillator + <audio> + MediaSession; HarmonyOS marks the generation active so
-// the shell holds a continuous task once the app is in the background) and
-// GENERATION_ENDED schedules exiting it after a grace window. The grace covers
-// chained generations (orchestrator multi-node runs, agent tool loops) so the
-// mode doesn't tear down between one node's ENDED and the next node's STARTED.
-// Reference-counted because a single user action can trigger nested quiet
-// generations.
+// the shell holds a continuous task once the app is in the background) and the
+// last one to finish schedules exiting it after a grace window. The grace
+// covers chained generations (orchestrator multi-node runs, agent tool loops)
+// so the mode doesn't tear down between one round and the next.
+//
+// "In flight" comes from the core's exact Generate() count (see
+// isGenerationInFlight) rather than the GENERATION_STARTED / GENERATION_ENDED
+// pair, because that pair is not balanced: recursive tool-call and
+// auto-continue-on-truncated rounds, early returns before the stop button is
+// shown, and a quiet generation overlapping a main one all leave STARTED
+// without a matching ENDED, which pinned the keep-alive on after the last
+// generation ended.
 const SCOPED_KEEP_ALIVE_DEACTIVATE_GRACE_MS = 10000;
-let scopedKeepAliveActivationCount = 0;
 let scopedKeepAliveDeactivateTimer = null;
+// Image generations are not Generate() calls, so they are counted separately.
+let scopedKeepAliveImageGenerationCount = 0;
 
 /**
  * @returns {'audio'|'harmony'|null} the generation-scoped mode enabled on this device
@@ -538,10 +547,14 @@ function getScopedKeepAliveMode() {
     return null;
 }
 
+function scopedKeepAliveShouldHold() {
+    return isGenerationInFlight() || scopedKeepAliveImageGenerationCount > 0;
+}
+
 function scopedKeepAliveActivationSync() {
     const mode = getScopedKeepAliveMode();
     if (!mode) return;
-    if (scopedKeepAliveActivationCount > 0) {
+    if (scopedKeepAliveShouldHold()) {
         if (scopedKeepAliveDeactivateTimer) {
             clearTimeout(scopedKeepAliveDeactivateTimer);
             scopedKeepAliveDeactivateTimer = null;
@@ -554,7 +567,7 @@ function scopedKeepAliveActivationSync() {
     } else if (!scopedKeepAliveDeactivateTimer) {
         scopedKeepAliveDeactivateTimer = setTimeout(() => {
             scopedKeepAliveDeactivateTimer = null;
-            if (scopedKeepAliveActivationCount > 0) return;
+            if (scopedKeepAliveShouldHold()) return;
             const active = getActiveKeepAliveMode();
             if (active === 'audio' || active === 'harmony') {
                 setKeepAliveMode('off').catch((error) => {
@@ -565,27 +578,16 @@ function scopedKeepAliveActivationSync() {
     }
 }
 
-// dryRun generations (token-count predictions on chat open, lorebook scan
-// previews) emit GENERATION_STARTED but never GENERATION_ENDED — see Generate()
-// in script.js where dryRun returns before finishGenerating. Counting them
-// would pin the counter above zero forever.
-function onScopedKeepAliveGenerationStarted(_type, _params, dryRun) {
-    if (dryRun) return;
-    onScopedKeepAliveActivationStarted();
-}
-
-// Image generation shares the same counter so keep-alive covers any image
-// request in flight even when no LLM generation is active (e.g. wand button
-// image generation while reading a long reply).
-function onScopedKeepAliveActivationStarted() {
-    if (!getScopedKeepAliveMode()) return;
-    scopedKeepAliveActivationCount += 1;
+// Image generation is covered so keep-alive holds any image request in flight
+// even when no LLM generation is active (e.g. wand button image generation
+// while reading a long reply).
+function onScopedKeepAliveImageGenerationStarted() {
+    scopedKeepAliveImageGenerationCount += 1;
     scopedKeepAliveActivationSync();
 }
 
-function onScopedKeepAliveActivationEnded() {
-    if (!getScopedKeepAliveMode()) return;
-    scopedKeepAliveActivationCount = Math.max(0, scopedKeepAliveActivationCount - 1);
+function onScopedKeepAliveImageGenerationEnded() {
+    scopedKeepAliveImageGenerationCount = Math.max(0, scopedKeepAliveImageGenerationCount - 1);
     scopedKeepAliveActivationSync();
 }
 
@@ -601,7 +603,7 @@ function syncMobileKeepAliveUi() {
     // audio-mode setting persists in settings.json across devices; if a user
     // enables it on their phone and then loads the same account on a desktop
     // browser, initKeepAlive() would report platform === 'web' (AudioContext
-    // exists everywhere) and the GENERATION_STARTED listener would enter
+    // exists everywhere) and the in-flight listener would enter
     // audio mode on every generation — pausing the user's Spotify/YouTube
     // and showing a MediaSession card, with no UI to turn it off. Skip init
     // entirely on non-mobile so the persisted flag is inert off-device. A
@@ -613,10 +615,9 @@ function syncMobileKeepAliveUi() {
 
     if (!syncMobileKeepAliveUi._initialized) {
         initKeepAlive();
-        eventSource.on(event_types.GENERATION_STARTED, onScopedKeepAliveGenerationStarted);
-        eventSource.on(event_types.GENERATION_ENDED, onScopedKeepAliveActivationEnded);
-        eventSource.on(event_types.IMAGE_GENERATION_STARTED, onScopedKeepAliveActivationStarted);
-        eventSource.on(event_types.IMAGE_GENERATION_ENDED, onScopedKeepAliveActivationEnded);
+        setGenerationInFlightListener(() => scopedKeepAliveActivationSync());
+        eventSource.on(event_types.IMAGE_GENERATION_STARTED, onScopedKeepAliveImageGenerationStarted);
+        eventSource.on(event_types.IMAGE_GENERATION_ENDED, onScopedKeepAliveImageGenerationEnded);
         onKeepAliveStateChanged(() => {
             // Reflect whatever the module says is currently in effect — the user closing the
             // PiP window from the OS UI or autoplay being denied both land here.
@@ -695,10 +696,8 @@ async function chooseWebKeepAliveMode(onPipChosen) {
 async function applyMobileKeepAliveFromUser(checked) {
     if (!checked) {
         // A generation-scoped mode may already be held for an in-flight
-        // generation; shut it down explicitly along with the reference counter
-        // so a future STARTED with the setting off doesn't reactivate a stale
-        // count.
-        scopedKeepAliveActivationCount = 0;
+        // generation; shut it down explicitly so a generation that ends with
+        // the setting off doesn't leave the mode active.
         cancelScopedKeepAliveDeactivateTimer();
         try { await setKeepAliveMode('off'); } catch (_) { /* noop */ }
         const platform = getKeepAlivePlatform();

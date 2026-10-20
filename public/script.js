@@ -7700,6 +7700,44 @@ function applyFinalizedAuthorsNoteInjections(anBefore = [], anAfter = []) {
     );
 }
 
+// Number of Generate() invocations currently in flight. Consumers that need to
+// know whether a generation is running (the mobile background keep-alive) read
+// this instead of the GENERATION_STARTED / GENERATION_ENDED pair, which is not
+// balanced: recursive tool-call and auto-continue-on-truncated rounds emit
+// STARTED without a matching ENDED, early returns emit STARTED before the stop
+// button that ENDED is gated on ever appears, and a quiet generation
+// overlapping a main one swallows the main generation's ENDED. Counting at the
+// Generate() boundary is exact for every entry and exit path.
+let generationInFlightCount = 0;
+let generationInFlightListener = null;
+
+/**
+ * Whether a Generate() call is currently in flight.
+ * @returns {boolean}
+ */
+export function isGenerationInFlight() {
+    return generationInFlightCount > 0;
+}
+
+/**
+ * Register a callback invoked whenever the in-flight generation count changes.
+ * Only one callback is retained.
+ * @param {(inFlight: boolean) => void} callback
+ */
+export function setGenerationInFlightListener(callback) {
+    generationInFlightListener = typeof callback === 'function' ? callback : null;
+}
+
+function notifyGenerationInFlightChanged() {
+    if (typeof generationInFlightListener === 'function') {
+        try {
+            generationInFlightListener(generationInFlightCount > 0);
+        } catch (_) {
+            // A listener throwing must not break generation.
+        }
+    }
+}
+
 /**
  * MARK:Generate()
  * Runs a generation using the current chat context.
@@ -7708,7 +7746,23 @@ function applyFinalizedAuthorsNoteInjections(anBefore = [], anAfter = []) {
  * @param {boolean} dryRun Whether to actually generate a message or just assemble the prompt
  * @returns {Promise<any>} Returns a promise that resolves when the text is done generating.
  */
-export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
+export async function Generate(type, options = {}, dryRun = false) {
+    // A dry run only assembles the prompt (token counting, previews); it neither
+    // calls the model nor persists, so it must not hold the keep-alive.
+    if (dryRun) {
+        return await generateInternal(type, options, dryRun);
+    }
+    generationInFlightCount += 1;
+    notifyGenerationInFlightChanged();
+    try {
+        return await generateInternal(type, options, dryRun);
+    } finally {
+        generationInFlightCount = Math.max(0, generationInFlightCount - 1);
+        notifyGenerationInFlightChanged();
+    }
+}
+
+async function generateInternal(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
     console.log('Generate entered');
     setGenerationProgress(0);
     generation_started = new Date();
