@@ -2407,6 +2407,67 @@ async function maybeRunPreRequestSearchAgent(payload) {
     }
 }
 
+/**
+ * Identity of what the shared lorebook currently projects. A structural chat
+ * change that does not move the anchored user turn (e.g. swiping an assistant
+ * reply) leaves this unchanged, so the lorebook does not need another write.
+ */
+function describeSelectedSearchSnapshot() {
+    return JSON.stringify({
+        floor: latestSearchAgentSnapshot?.anchorPlayableFloor ?? null,
+        hash: latestSearchAgentSnapshot?.anchorHash ?? null,
+        entries: latestManagedEntries,
+    });
+}
+
+/**
+ * Re-read the chat-scoped search state and re-project it onto the shared
+ * lorebook. floor-state settles its commit log before core emits each
+ * structural event, so by the time this runs the anchor map already reflects
+ * the deletion / swipe / edit and `pickLatestValidSnapshot` yields the state
+ * the chat has rolled back to.
+ */
+async function resyncSearchToolsStateAfterStructuralChange() {
+    const context = getContext();
+    const before = describeSelectedSearchSnapshot();
+    try {
+        await loadSearchToolsChatState(context, { force: true });
+    } catch (error) {
+        console.warn(`[${MODULE_NAME}] structural resync could not reload chat state`, error);
+        return;
+    }
+    if (describeSelectedSearchSnapshot() !== before) {
+        try {
+            await syncSharedLorebookForCurrentChat(context);
+        } catch (error) {
+            console.warn(`[${MODULE_NAME}] structural resync could not update the shared lorebook`, error);
+        }
+    }
+    await refreshUiStatusForCurrentChat();
+}
+
+/**
+ * Re-project the shared lorebook whenever a structural chat change
+ * invalidates the stored search snapshot. Exported so tests can drive the
+ * wiring without the DOM-ready path.
+ */
+function registerSearchToolsStructuralSync(context = getContext()) {
+    const types = context?.eventTypes;
+    const source = context?.eventSource;
+    if (!types || !source) {
+        return;
+    }
+    const structuralEvents = [
+        types.MESSAGE_DELETED,
+        types.MESSAGE_SWIPED,
+        types.MESSAGE_SWIPE_DELETED,
+        types.MESSAGE_EDITED,
+    ].filter(Boolean);
+    for (const eventName of structuralEvents) {
+        source.on(eventName, () => { void resyncSearchToolsStateAfterStructuralChange(); });
+    }
+}
+
 function registerLocaleData() {
     addLocaleData('zh-cn', {
         'Search Tools': '搜索工具',
@@ -2753,6 +2814,8 @@ jQuery(() => {
         });
     }
 
+    registerSearchToolsStructuralSync(context);
+
     if (context?.eventTypes?.PRESET_CHANGED) {
         context.eventSource.on(context.eventTypes.PRESET_CHANGED, (event) => {
             if (String(event?.apiId || '') === 'openai') {
@@ -2790,6 +2853,7 @@ export {
     buildManagedEntryCatalog,
     DEFAULT_SETTINGS,
     getManagedEntriesByIds,
+    registerSearchToolsStructuralSync,
     runPreRequestSearchAgent,
     TOOL_NAMES,
 };
