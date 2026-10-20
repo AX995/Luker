@@ -58,7 +58,7 @@ const projects = [
     {
         name: 'e2e',
         testMatch: ['e2e/**/*.e2e.js'],
-        testIgnore: ['**/_lib/**', '**/_fixtures/**', '**/.e2e-scratch/**', '**/node_modules/**', '**/desktop/**'],
+        testIgnore: ['**/_lib/**', '**/_fixtures/**', '**/.e2e-scratch/**', '**/node_modules/**', '**/e2e/desktop/**'],
     },
 ];
 
