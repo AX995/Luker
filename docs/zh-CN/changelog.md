@@ -53,6 +53,7 @@
 - 新增原生 Windows/macOS 应用支持，详见[桌面应用指南](/zh-CN/guide/desktop)。
 - 关闭窗口不再结束应用，仍在生成的回复会在后台继续，重新打开窗口回到原来的页面。
 - Windows 与 Linux 新增托盘菜单，提供显示窗口、打开数据目录、退出应用；macOS 的应用菜单新增「打开数据目录」。
+- 新增 Linux 安装包：为 x64 与 arm64 提供 AppImage、deb 与 rpm，与 macOS、Windows 的安装包一并发布。Linux 上关闭窗口会退出应用，更新提示会挑选与当前安装方式匹配的安装包。
 
 ### 记忆图
 

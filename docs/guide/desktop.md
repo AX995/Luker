@@ -1,10 +1,10 @@
 ---
-description: Luker provides a desktop app that runs the complete Luker server and interface as a standalone application on macOS and Windows. This guide covers downloading, installing, the first-launch security prompts, and where the app stores its data.
+description: Luker provides a desktop app that runs the complete Luker server and interface as a standalone application on macOS, Windows, and Linux. This guide covers downloading, installing, the first-launch security prompts, and where the app stores its data.
 ---
 
 # Desktop App
 
-Luker provides a desktop app that runs the complete Luker server and interface as a standalone application on macOS and Windows. Opening it displays the full Luker interface — there is no separate address to open in a browser.
+Luker provides a desktop app that runs the complete Luker server and interface as a standalone application on macOS, Windows, and Linux. Opening it displays the full Luker interface — there is no separate address to open in a browser.
 
 ## Download
 
@@ -12,7 +12,7 @@ Download the latest release from the GitHub Releases page:
 
 👉 [https://github.com/funnycups/Luker/releases/latest](https://github.com/funnycups/Luker/releases/latest)
 
-Each release ships an installer and a plain archive for both platforms. The file name carries the version, the platform, and the architecture, for example `Luker-2.8.0-mac-arm64.dmg`.
+Each release ships an installer and a no-install form for macOS, Windows, and Linux. The file name carries the version, the platform, and the architecture, for example `Luker-2.8.0-mac-arm64.dmg`.
 
 | File name | What it is |
 | --- | --- |
@@ -20,12 +20,17 @@ Each release ships an installer and a plain archive for both platforms. The file
 | `Luker-<version>-mac-<arch>.zip` | macOS archive of the same app, unpack it anywhere |
 | `Luker-<version>-win-<arch>.exe` | Windows installer; installs the app and adds shortcuts |
 | `Luker-<version>-win-<arch>.zip` | Windows portable archive that runs without installing |
+| `Luker-<version>-linux-x86_64.AppImage` and `Luker-<version>-linux-arm64.AppImage` | Linux AppImage; make it executable with `chmod +x` and run it, on any distribution |
+| `Luker-<version>-linux-amd64.deb` and `Luker-<version>-linux-arm64.deb` | Debian and Ubuntu package |
+| `Luker-<version>-linux-x86_64.rpm` and `Luker-<version>-linux-aarch64.rpm` | Fedora and openSUSE package |
 
 `<arch>` is `arm64` on Apple Silicon and on Windows on ARM, and `x64` on Intel Macs and on Intel or AMD Windows. Pick the file that matches your machine.
 
+On Linux the architecture spelling depends on the format: `.AppImage` uses `x86_64` and `arm64`, `.deb` uses `amd64` and `arm64`, and `.rpm` uses `x86_64` and `aarch64`.
+
 ## Install
 
-Either file works; you do not need both.
+Either form works; you do not need both.
 
 ### macOS
 
@@ -38,6 +43,14 @@ Either file works; you do not need both.
 - **`.zip`** — unpack it and run `Luker.exe` from the unpacked folder.
 
 Antivirus software sometimes flags the `.exe` because it is not code-signed. If that happens, allow the file and run it again.
+
+### Linux
+
+- **`.AppImage`** — make it executable with `chmod +x`, then run it.
+- **`.deb`** — install it with your package manager.
+- **`.rpm`** — install it with your package manager.
+
+On Ubuntu 24.04 and later, the AppImage may need `--no-sandbox` in its launch arguments before it starts. The `.deb` and `.rpm` packages do not need this.
 
 ## First Launch
 
@@ -59,6 +72,7 @@ The app keeps everything it owns under a single directory:
 | --- | --- |
 | macOS | `~/Library/Application Support/Luker` |
 | Windows | `%APPDATA%\Luker` |
+| Linux | `~/.config/Luker` |
 
 Inside it:
 
@@ -76,6 +90,8 @@ On Windows, closing the window moves the app to the notification area. Its menu 
 
 On macOS, closing the window leaves the app in the Dock. Clicking the Dock icon opens the window again, **Luker** → **Open data directory** opens the data directory, and ⌘Q quits the app.
 
+On Linux, there is no tray, so closing the window quits the app and the server stops with it.
+
 ## Storage Backend
 
 The desktop app supports the `fs`, `mysql`, and `postgres` storage backends. The `sqlite` backend is not supported; use `fs` for local storage.
@@ -87,6 +103,8 @@ The desktop app supports the `fs`, `mysql`, and `postgres` storage backends. The
 ## Updates
 
 When a new version is available, the app shows an update prompt in the interface. **Download Update** fetches the installer for the current platform and hands it to the system installer.
+
+On Linux, the AppImage is replaced in place, and the app asks you to restart once the replacement is done. A `.deb` or `.rpm` update is handed to the system installer.
 
 ## Related Pages
 

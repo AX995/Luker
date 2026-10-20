@@ -243,3 +243,31 @@ describe('desktop asset selection', () => {
         expect(selectDesktopAsset(winAssets, 'darwin', 'x64')).toBeNull();
     });
 });
+
+describe('selectDesktopAsset on linux', () => {
+    const release = [
+        { name: 'Luker-2.9.0-linux-x86_64.AppImage', url: 'a', size: 1 },
+        { name: 'Luker-2.9.0-linux-amd64.deb', url: 'b', size: 1 },
+        { name: 'Luker-2.9.0-linux-x86_64.rpm', url: 'c', size: 1 },
+        { name: 'Luker-2.9.0-linux-aarch64.rpm', url: 'e', size: 1 },
+        { name: 'Luker-2.9.0-mac-arm64.dmg', url: 'd', size: 1 },
+    ];
+
+    test('picks the one format the flavour names', () => {
+        expect(selectDesktopAsset(release, 'linux', 'x64', 'appimage').url).toBe('a');
+        expect(selectDesktopAsset(release, 'linux', 'x64', 'deb').url).toBe('b');
+        expect(selectDesktopAsset(release, 'linux', 'x64', 'rpm').url).toBe('c');
+        expect(selectDesktopAsset(release, 'linux', 'arm64', 'rpm').url).toBe('e');
+    });
+
+    test('resolves to null when the flavour is unknown or absent', () => {
+        expect(selectDesktopAsset(release, 'linux', 'x64', '')).toBeNull();
+        expect(selectDesktopAsset(release, 'linux', 'x64', 'pacman')).toBeNull();
+        expect(selectDesktopAsset(release, 'linux', 'x64')).toBeNull();
+    });
+
+    test('leaves the other platforms alone', () => {
+        expect(selectDesktopAsset(release, 'darwin', 'arm64').url).toBe('d');
+        expect(selectDesktopAsset(release, 'win32', 'x64', 'deb')).toBeNull();
+    });
+});

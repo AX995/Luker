@@ -1759,16 +1759,19 @@ async function runDesktopUpdateFlow() {
 
     const platform = String(window.LukerDesktop?.platform || '');
     const arch = String(window.LukerDesktop?.arch || '');
+    const flavour = String(window.LukerDesktop?.installFlavour || '');
 
     await showUpdateProgressPopup(t`Luker App Update`, async ({ pushLog, setStatus }) => {
         setStatus(t`Fetching the latest desktop release...`);
-        const release = await callLukerUpdateApi('desktop-latest', { platform, arch });
+        const release = await callLukerUpdateApi('desktop-latest', { platform, arch, flavour });
         const assetName = String(release?.asset?.name || '');
         const assetUrl = String(release?.asset?.url || '');
         const tagName = String(release?.tagName || '');
 
         if (!assetName || !assetUrl) {
-            throw new Error(t`Latest release does not include a valid desktop installer.`);
+            window.open(String(release?.htmlUrl || ''));
+            setStatus(t`Opening the release page...`);
+            return;
         }
 
         pushLog(tagName ? `${t`Release`}: ${tagName}` : t`Release metadata loaded.`);
@@ -1786,7 +1789,9 @@ async function runDesktopUpdateFlow() {
         if (savedPath) {
             pushLog(`${t`Saved`}: ${savedPath}`);
         }
-        setStatus(t`Installer handoff started.`);
+        setStatus(flavour === 'appimage'
+            ? t`Replaced in place. Restart Luker to run the new version.`
+            : t`Installer handoff started.`);
     });
 }
 

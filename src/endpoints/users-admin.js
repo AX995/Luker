@@ -298,18 +298,14 @@ router.post('/update/desktop-latest', requireAdminMiddleware, async (request, re
     try {
         const platform = String(request.body?.platform || '');
         const arch = String(request.body?.arch || '');
+        const flavour = String(request.body?.flavour || '');
 
         const release = await fetchLatestRelease();
         if (!release) {
             return response.status(400).json({ error: 'The repository has no published release.' });
         }
 
-        const asset = selectDesktopAsset(release.assets, platform, arch);
-        if (!asset) {
-            return response.status(400).json({
-                error: `Latest release does not include a desktop installer for ${platform}-${arch}.`,
-            });
-        }
+        const asset = selectDesktopAsset(release.assets, platform, arch, flavour);
 
         return response.json({
             tagName: release.tagName,

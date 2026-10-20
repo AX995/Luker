@@ -5,14 +5,14 @@
 // receives it through `extraMetadata`, which is also what `artifactName`
 // expands against.
 //
-// Usage: node scripts/build-desktop.mjs <mac|win>
+// Usage: node scripts/build-desktop.mjs <mac|win|linux>
 
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { prepareBackend } from './prepare-backend.mjs';
 
-const PLATFORMS = ['mac', 'win'];
+const PLATFORMS = ['mac', 'win', 'linux'];
 const platform = process.argv[2];
 
 if (!PLATFORMS.includes(platform)) {

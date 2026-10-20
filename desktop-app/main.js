@@ -6,6 +6,10 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 
+import { replaceRunningAppImage } from './appimage-update.js';
+import { detectInstallFlavour } from './install-flavour.js';
+import { hidesOnClose, usesTray } from './window-behaviour.js';
+
 // Electron's main process exposes V8's WebAssembly but not the streaming
 // compile helpers, which live at the Blink layer in Chromium. Emscripten-built
 // wasm codecs probe `instantiateStreaming` to pick their load path; without it
@@ -93,6 +97,18 @@ async function downloadUpdate(url, destination, onProgress) {
     await pipeline(Readable.fromWeb(response.body), counter, fs.createWriteStream(destination));
 }
 
+// The renderer cannot read the filesystem, so the shell resolves how it was
+// installed once at startup and hands that answer over on request.
+const installFlavour = detectInstallFlavour({
+    appImagePath: process.env.APPIMAGE,
+    packageTypePath: path.join(process.resourcesPath, 'package-type'),
+    isPackaged: app.isPackaged,
+});
+
+ipcMain.on('luker:install-flavour', (event) => {
+    event.returnValue = installFlavour;
+});
+
 ipcMain.handle('luker:install-update', async (event, payload) => {
     const rawUrl = String(payload?.url || '');
     const updateUrl = new URL(rawUrl);
@@ -121,9 +137,15 @@ ipcMain.handle('luker:install-update', async (event, payload) => {
         throw error;
     }
 
-    // The e2e harness sets this so a test run never hands a file to the real
-    // OS installer.
-    if (process.env.LUKER_DESKTOP_SKIP_OPEN_INSTALLER !== '1') {
+    // A self-contained bundle runs from a mount, so the download is put in
+    // place of the file this process was started from rather than handed to the
+    // OS. The renderer's progress dialog reports the saved path; the user
+    // restarts the app to run the replacement.
+    if (installFlavour === 'appimage') {
+        await replaceRunningAppImage({ appImagePath: process.env.APPIMAGE, downloadPath: finalPath });
+    } else if (process.env.LUKER_DESKTOP_SKIP_OPEN_INSTALLER !== '1') {
+        // The e2e harness sets this so a test run never hands a file to the real
+        // OS installer.
         await shell.openPath(finalPath);
     }
 
@@ -368,9 +390,11 @@ function pickShellStrings(locale) {
     return SHELL_STRINGS.en;
 }
 
-// Closing the window hides it instead of destroying it. The backend runs in
-// this process, so quitting on close would end any generation in flight; only
-// a real quit takes the window down.
+// Where the platform keeps an entry point back into the app, closing the
+// window hides it instead of destroying it. The backend runs in this process,
+// so quitting on close would end any generation in flight; only a real quit
+// takes the window down. Elsewhere the close is let through, because a hidden
+// window with no way back leaves the app running and unreachable.
 let quitting = false;
 let tray = null;
 let trayHintShown = false;
@@ -453,32 +477,32 @@ app.whenReady().then(async () => {
         webPreferences: {
             preload: path.join(import.meta.dirname, 'preload.js'),
             // A hidden window is throttled by default, which would slow the
-            // renderer's timers and animations down while the app sits in the
-            // tray. Leaving the page unthrottled matches what hiding does on
-            // macOS on its own, so every platform behaves the same way.
+            // renderer's timers and animations down while the app runs hidden.
+            // Leaving the page unthrottled matches what hiding does on macOS on
+            // its own, so every platform behaves the same way.
             backgroundThrottling: false,
         },
     });
     routeExternalNavigation(win.webContents);
 
     win.on('close', (event) => {
-        if (quitting) {
+        if (quitting || !hidesOnClose(process.platform)) {
             return;
         }
         event.preventDefault();
         win.hide();
         // Windows tucks new tray icons into its overflow area, so the first
         // close tells the user where the app went.
-        if (process.platform === 'win32' && !trayHintShown) {
+        if (usesTray(process.platform) && !trayHintShown) {
             trayHintShown = true;
             tray.displayBalloon({ title: 'Luker', content: strings.trayHint });
         }
     });
 
-    if (process.platform === 'darwin') {
-        installApplicationMenu(strings);
-    } else {
+    if (usesTray(process.platform)) {
         createTray(win, strings);
+    } else if (process.platform === 'darwin') {
+        installApplicationMenu(strings);
     }
 
     app.on('activate', () => showMainWindow(win));

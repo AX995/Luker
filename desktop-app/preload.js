@@ -18,6 +18,7 @@ ipcRenderer.on('luker:update-progress', (_event, progress) => {
 contextBridge.exposeInMainWorld('LukerDesktop', {
     platform: process.platform,
     arch: process.arch,
+    installFlavour: ipcRenderer.sendSync('luker:install-flavour'),
     installUpdateFromUrl: (url, name) => ipcRenderer.invoke('luker:install-update', { url, name }),
     onUpdateProgress: (callback) => {
         progressCallback = callback;

@@ -53,6 +53,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Added native Windows/macOS app support. See the [Desktop app guide](/guide/desktop).
 - Closing the window keeps the app running instead of quitting, so a reply in flight finishes in the background and the window reopens on the page it was on.
 - Added a tray menu on Windows and Linux with commands to show the window, open the data directory, and quit the app, and an **Open data directory** item in the macOS application menu.
+- Added Linux packages: an AppImage, a `.deb`, and an `.rpm` for x64 and arm64, published alongside the macOS and Windows installers. Closing the window quits the app on Linux, and the update prompt picks the package that matches how the app was installed.
 
 ### Memory Graph
 

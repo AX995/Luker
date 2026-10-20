@@ -3,6 +3,11 @@
   "productName": "Luker",
   "version": "1.0.0",
   "description": "Luker desktop client",
+  "homepage": "https://github.com/funnycups/Luker",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/funnycups/Luker"
+  },
   "author": "Luker",
   "license": "AGPL-3.0",
   "type": "module",
@@ -11,7 +16,8 @@
     "start": "electron .",
     "prepare:backend": "node scripts/prepare-backend.mjs",
     "build:mac": "node scripts/build-desktop.mjs mac",
-    "build:win": "node scripts/build-desktop.mjs win"
+    "build:win": "node scripts/build-desktop.mjs win",
+    "build:linux": "node scripts/build-desktop.mjs linux"
   },
   "devDependencies": {
     "electron": "^41.1.1",
@@ -23,6 +29,9 @@
     "artifactName": "Luker-${version}-${os}-${arch}.${ext}",
     "files": [
       "main.js",
+      "appimage-update.js",
+      "install-flavour.js",
+      "window-behaviour.js",
       "preload.js",
       "loading.html",
       "tray-icon.png",
@@ -76,6 +85,34 @@
         }
       ],
       "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "maintainer": "Luker <support@cups.moe>"
     }
   }
 }

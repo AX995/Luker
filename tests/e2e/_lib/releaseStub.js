@@ -18,7 +18,7 @@ import http from 'node:http';
  * @param {string} [options.assetBody]  Bytes every asset download returns.
  * @param {number} [options.assetStatus]  Status for asset downloads; 200 by default.
  * @param {number} [options.releaseStatus]  Status for the release lookup; 200 by default.
- * @returns {Promise<{ baseURL: string, requests: Array<{ method: string, path: string }>, setAssetStatus: (status: number) => void, stop: () => Promise<void> }>}
+ * @returns {Promise<{ baseURL: string, requests: Array<{ method: string, path: string }>, setAssetStatus: (status: number) => void, setAssets: (assets: Array<{ name: string, url: string, size?: number }>) => void, stop: () => Promise<void> }>}
  */
 export async function startReleaseStub({
     tag = '9.9.9',
@@ -29,6 +29,7 @@ export async function startReleaseStub({
 } = {}) {
     const requests = [];
     let currentAssetStatus = assetStatus;
+    let currentAssets = assets;
     let origin = '';
 
     const server = http.createServer((request, response) => {
@@ -47,7 +48,7 @@ export async function startReleaseStub({
                 name: `Luker ${tag}`,
                 html_url: `${origin}/releases/tag/${tag}`,
                 published_at: '2026-01-01T00:00:00Z',
-                assets: assets.map(asset => ({
+                assets: currentAssets.map(asset => ({
                     name: asset.name,
                     size: asset.size ?? 0,
                     browser_download_url: /^https?:/i.test(asset.url) ? asset.url : `${origin}${asset.url}`,
@@ -85,6 +86,9 @@ export async function startReleaseStub({
         requests,
         setAssetStatus(status) {
             currentAssetStatus = status;
+        },
+        setAssets(next) {
+            currentAssets = next;
         },
         stop: () => new Promise((resolve) => server.close(() => resolve())),
     };

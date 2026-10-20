@@ -9,8 +9,9 @@
 // handing a file to the OS installer.
 
 import { test, expect } from '@playwright/test';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { startReleaseStub } from '../_lib/releaseStub.js';
 import { launchLukerDesktop } from '../_lib/desktop.js';
 import { awaitMainUI } from '../_lib/page.js';
@@ -104,4 +105,78 @@ test('a failing asset download is reported, not swallowed', async () => {
     await expect.poll(() => existsSync(join(failing.userData, 'updates', ASSET_NAME))).toBe(false);
 
     await failing.close();
+});
+
+test('the shell reports how it was installed', async () => {
+    // This run is a checkout on macOS, so it is neither a self-contained
+    // Linux bundle nor a Linux package: the shell must report no flavour.
+    expect(await desktop.page.evaluate(() => window.LukerDesktop.installFlavour)).toBe('');
+});
+
+test('a release with no asset for this install opens the release page', async () => {
+    // The stub is swapped to serve only a build for another platform, so the
+    // endpoint reports no matching asset. Downloads are restored to 200, so an
+    // attempt to fetch one would leave a file behind and the assertions below
+    // would see it.
+    stub.setAssets([{
+        name: 'Luker-9.9.9-linux-x86_64.AppImage',
+        url: '/download/Luker-9.9.9-linux-x86_64.AppImage',
+        size: Buffer.byteLength(ASSET_BYTES),
+    }]);
+    stub.setAssetStatus(200);
+
+    const noAsset = await launchLukerDesktop({
+        scenarioId: 'update-no-asset',
+        extraEnv: {
+            LUKER_GITHUB_API_BASE: stub.baseURL,
+            LUKER_DESKTOP_SKIP_OPEN_INSTALLER: '1',
+            LUKER_DESKTOP_SKIP_OPEN_EXTERNAL: '1',
+        },
+    });
+    await noAsset.page.addInitScript(() => { localStorage.setItem('language', 'en'); });
+    markOnboarded({ dataRoot: noAsset.dataRoot });
+    await awaitMainUI(noAsset.page, noAsset.baseURL);
+    await updatePrompt(noAsset.page).locator('.popup-button-ok').click();
+
+    const releasePageUrl = `${stub.baseURL}/releases/tag/9.9.9`;
+    await expect.poll(() => noAsset.electronApp.evaluate(() => globalThis.__lukerExternalOpens ?? []))
+        .toEqual([releasePageUrl]);
+    expect(existsSync(join(noAsset.userData, 'updates', ASSET_NAME))).toBe(false);
+
+    await noAsset.close();
+});
+
+test('replacing a running bundle in place asks the user to restart', async () => {
+    // A self-contained Linux bundle names its own path through the
+    // environment, so pointing that at a scratch file drives the replace-in-
+    // place branch on any platform: the download is renamed over the file the
+    // process was started from, and the running process keeps the old one
+    // until the user restarts.
+    stub.setAssets([{ name: ASSET_NAME, url: `/download/${ASSET_NAME}`, size: Buffer.byteLength(ASSET_BYTES) }]);
+    stub.setAssetStatus(200);
+
+    const bundleDir = mkdtempSync(join(tmpdir(), 'luker-appimage-'));
+    const bundlePath = join(bundleDir, 'Luker-9.9.9-linux-x86_64.AppImage');
+    writeFileSync(bundlePath, 'the bundle that is currently running');
+
+    const appimage = await launchLukerDesktop({
+        scenarioId: 'update-appimage',
+        extraEnv: {
+            LUKER_GITHUB_API_BASE: stub.baseURL,
+            LUKER_DESKTOP_SKIP_OPEN_INSTALLER: '1',
+            APPIMAGE: bundlePath,
+        },
+    });
+    await appimage.page.addInitScript(() => { localStorage.setItem('language', 'en'); });
+    markOnboarded({ dataRoot: appimage.dataRoot });
+    await awaitMainUI(appimage.page, appimage.baseURL);
+    await updatePrompt(appimage.page).locator('.popup-button-ok').click();
+
+    const progress = appimage.page.locator('dialog.popup[open]', { has: appimage.page.locator('.lukerUpdateStatus') });
+    await expect(progress.locator('.lukerUpdateStatus'))
+        .toHaveText('Replaced in place. Restart Luker to run the new version.', { timeout: 30_000 });
+    expect(readFileSync(bundlePath)).toEqual(Buffer.from(ASSET_BYTES));
+
+    await appimage.close();
+    rmSync(bundleDir, { recursive: true, force: true });
 });

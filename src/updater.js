@@ -416,21 +416,47 @@ export async function fetchLatestRelease({ apiBase = process.env.LUKER_GITHUB_AP
     };
 }
 
-const DESKTOP_OS_NAMES = { darwin: 'mac', win32: 'win' };
+const DESKTOP_OS_NAMES = { darwin: 'mac', win32: 'win', linux: 'linux' };
 const DESKTOP_INSTALLER_EXTENSIONS = ['.dmg', '.exe', '.zip'];
+const LINUX_FLAVOUR_EXTENSIONS = { appimage: ['.appimage'], deb: ['.deb'], rpm: ['.rpm'] };
+const LINUX_ARCH_ALIASES = { x64: ['x64', 'x86_64', 'amd64'], arm64: ['arm64', 'aarch64'] };
 
 /**
  * Picks the release asset built for the requested desktop platform and
- * architecture, preferring an installer over an archive. Resolves to null when
- * the release carries no asset for that platform and architecture.
+ * architecture, preferring an installer over an archive. A Linux build ships
+ * one asset per install flavour, so the requested flavour names the extension
+ * the asset must carry and the architecture matches any of its aliases.
+ * Resolves to null when the release carries no asset for that platform,
+ * architecture and flavour.
  * @param {Array<{ name: string, url: string, size: number }>} assets
  * @param {string} platform
  * @param {string} arch
+ * @param {string} [flavour] Install flavour of the running Linux app.
  * @returns {{ name: string, url: string, size: number } | null}
  */
-export function selectDesktopAsset(assets, platform, arch) {
+export function selectDesktopAsset(assets, platform, arch, flavour = '') {
     const osName = DESKTOP_OS_NAMES[platform];
     if (!osName) {
+        return null;
+    }
+
+    if (platform === 'linux') {
+        const extensions = LINUX_FLAVOUR_EXTENSIONS[flavour];
+        if (!extensions) {
+            return null;
+        }
+
+        const archAliases = LINUX_ARCH_ALIASES[arch] || [];
+        for (const extension of extensions) {
+            for (const archAlias of archAliases) {
+                const asset = assets.find(candidate =>
+                    candidate.name.toLowerCase().endsWith(`-${osName}-${archAlias}${extension}`));
+                if (asset) {
+                    return { name: asset.name, url: asset.url, size: asset.size };
+                }
+            }
+        }
+
         return null;
     }
 

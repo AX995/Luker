@@ -2,15 +2,20 @@ import { test, expect } from '@playwright/test';
 import { launchLukerDesktop } from '../_lib/desktop.js';
 import { awaitMainUI } from '../_lib/page.js';
 
-// Closing the window hides it instead of quitting. The backend runs inside the
-// shell process, so the app has to outlive a close for a generation in flight
-// to finish, and the page keeps its state because it is never unloaded. The
-// tray belongs to Windows and Linux; macOS reopens the app from the Dock and
-// carries the data directory command in its application menu.
+// Closing the window hides it on macOS and Windows instead of quitting. The
+// backend runs inside the shell process, so the app has to outlive a close for
+// a generation in flight to finish, and the page keeps its state because it is
+// never unloaded. Each of those platforms keeps a way back to the hidden
+// window: Windows a tray icon, macOS the Dock and an application menu carrying
+// the data directory command. Linux has neither, so a close destroys the
+// window and the app exits.
+
+const LINUX = process.platform === 'linux';
 
 test.describe.configure({ mode: 'serial' });
 
 let desktop;
+let exited = false;
 
 test.beforeAll(async () => {
     desktop = await launchLukerDesktop({
@@ -21,10 +26,16 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-    await desktop?.close();
+    // The Linux case closes the app under test, so there is nothing left to
+    // close here.
+    if (!exited) {
+        await desktop?.close();
+    }
 });
 
 test('closing the window hides it and leaves the backend serving', async () => {
+    test.skip(LINUX, 'Linux destroys the window and exits on close');
+
     const { electronApp, port } = desktop;
 
     await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
@@ -40,7 +51,29 @@ test('closing the window hides it and leaves the backend serving', async () => {
     expect(response.ok).toBe(true);
 });
 
+test('closing the window destroys it and exits the app', async () => {
+    test.skip(!LINUX, 'macOS and Windows hide the window instead of exiting');
+
+    const { electronApp } = desktop;
+
+    // Linux keeps no application menu and no tray, so a hidden window would be
+    // unreachable; the shell lets the close through. Electron quits once the
+    // last window is closed, so the app exiting means the close destroyed the
+    // window rather than hiding it.
+    const hasApplicationMenu = await electronApp.evaluate(
+        ({ Menu }) => Menu.getApplicationMenu() !== null,
+    );
+    expect(hasApplicationMenu).toBe(false);
+
+    const closed = electronApp.waitForEvent('close');
+    await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+    await closed;
+    exited = true;
+});
+
 test('showing the window again lands on the same page', async () => {
+    test.skip(LINUX, 'Linux destroys the window on close, so there is nothing to show again');
+
     const { electronApp, page } = desktop;
     const url = page.url();
     await page.evaluate(() => { window.__lukerCloseProbe = 'kept'; });
@@ -62,6 +95,8 @@ test('showing the window again lands on the same page', async () => {
 });
 
 test('the app comes back from the Dock on macOS', async () => {
+    test.skip(LINUX, 'Linux has no Dock and the close already exited the app');
+
     const { electronApp } = desktop;
 
     await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
@@ -80,12 +115,14 @@ test('the app comes back from the Dock on macOS', async () => {
 });
 
 test('the data directory command reaches the configured data root', async () => {
+    test.skip(LINUX, 'Linux carries the command nowhere and the close already exited the app');
+
     const { electronApp, userData } = desktop;
 
     if (process.platform !== 'darwin') {
-        // Windows and Linux carry the command in the tray menu, and Electron
-        // exposes no handle for a tray, so what this run can assert is the
-        // platform split itself.
+        // Windows carries the command in the tray menu, and Electron exposes no
+        // handle for a tray, so what this run can assert is the platform split
+        // itself.
         const hasApplicationMenu = await electronApp.evaluate(
             ({ Menu }) => Menu.getApplicationMenu() !== null,
         );
