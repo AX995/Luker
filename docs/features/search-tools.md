@@ -164,10 +164,11 @@ When results are reused, the UI displays a `(reused)` marker, indicating that ca
 
 ## Impact of Message Operations
 
-The search plugin monitors message deletion and editing events, automatically maintaining internal state consistency:
+The plugin keeps the shared lorebook aligned with the stored search results as the chat changes:
 
-- **Message deletion** — Updates search state based on the range of deleted messages, ensuring no references to search results from deleted messages
-- **Message editing** — Updates search state based on the edited message position, potentially invalidating cached search results
+- **Deleting a message** — Search results for the deleted turn and every later turn are dropped with them
+- **Swiping a message** — Search results for the swiped turn are dropped
+- **Editing a message** — Stored results are kept. Editing the turn a search was run for makes the next generation run a fresh search instead of reusing the previous run
 
 ## Configuration Reference
 

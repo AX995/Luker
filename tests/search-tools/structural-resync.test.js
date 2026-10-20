@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Regression coverage: the shared `__SEARCH_TOOLS__` lorebook is only a
- * projection of the currently-selected search snapshot, so any structural
- * chat change that invalidates that snapshot (delete / swipe / swipe-delete /
- * edit) has to re-project it. floor-state settles its commit log before core
- * emits the structural event, so the projection listener always reads the
- * state the chat has rolled back to.
+ * projection of the stored managed-entry set, so a structural chat change
+ * that drops the owning turn's commit (delete / swipe of that turn) has to
+ * re-project it. floor-state settles its commit log before core emits the
+ * structural event, so the projection listener always reads the state the
+ * chat has rolled back to.
+ *
+ * Editing a message is deliberately NOT a data change: the stored set is
+ * never invalidated by text edits, and reuse of a previous run is decided in
+ * memory by comparing the owning turn's text hash.
  *
  * The chat-state + event-source harness mirrors
- * `tests/search-tools/persistence.test.js`.
+ * `tests/search-tools/entries-store.test.js`.
  */
 
 import { describe, test, expect, beforeAll, beforeEach } from '@jest/globals';
@@ -16,10 +20,9 @@ import { jest } from '@jest/globals';
 
 import { createFloorStateWithDeps } from '../../public/scripts/floor-state.js';
 import {
-    commitAnchorSnapshot,
+    commitManagedEntries,
     resetFloorStateInstanceForTesting,
 } from '../../public/scripts/extensions/search-tools/persistence.js';
-import { buildLastUserAnchorFromMessages } from '../../public/scripts/extensions/search-tools/anchors.js';
 
 // main.js transitively imports browser-only modules that touch `document` at
 // load time. Stub those edges so the module graph loads under node.
@@ -197,24 +200,6 @@ function asstMsg(text, { swipe_id = 0 } = {}) {
     return { is_user: false, is_system: false, mes: String(text), swipe_id };
 }
 
-function buildAnchorAt(messages, chatIndex) {
-    if (!messages[chatIndex]?.is_user) return null;
-    return buildLastUserAnchorFromMessages(messages.slice(0, chatIndex + 1));
-}
-
-function makeSnapshot(anchor, overrides = {}) {
-    return {
-        anchorHash: anchor.hash,
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        summary: 'agent ran',
-        mutationCount: 1,
-        managedEntryCount: 0,
-        bookName: '__SEARCH_TOOLS__',
-        managedEntries: [],
-        ...overrides,
-    };
-}
-
 function entrySpec(entryId, content) {
     return { entryId, title: entryId, keywords: [], content, alwaysInject: false };
 }
@@ -248,24 +233,21 @@ beforeEach(() => {
     harness.reset();
 });
 
-describe('shared lorebook follows chat rollback', () => {
-    test('re-projects the lorebook onto the previous turn after the anchored user turn is deleted', async () => {
+/** Prime the lorebook from the stored set through the real chat-change path. */
+async function primeLorebook() {
+    mod.registerSearchToolsChatChangedSync(harness.context);
+    mod.registerSearchToolsStructuralSync(harness.context);
+    await harness.eventSource.emit(event_types.CHAT_CHANGED);
+    await flush();
+}
+
+describe('shared lorebook follows the stored entry set', () => {
+    test('deleting the owning user turn rolls the lorebook back to the earlier set', async () => {
         chatRef.value = [userMsg('u1'), asstMsg('a1'), userMsg('u2'), asstMsg('a2')];
-        const anchorFirst = buildAnchorAt(chatRef.value, 0);
-        const anchorSecond = buildAnchorAt(chatRef.value, 2);
-        await commitAnchorSnapshot(harness.context, anchorFirst, makeSnapshot(anchorFirst, {
-            managedEntries: [entrySpec('first', 'first body')],
-        }));
-        await commitAnchorSnapshot(harness.context, anchorSecond, makeSnapshot(anchorSecond, {
-            managedEntries: [entrySpec('second', 'second body')],
-        }));
+        await commitManagedEntries(harness.context, { playableFloor: 1 }, [entrySpec('first', 'first body')]);
+        await commitManagedEntries(harness.context, { playableFloor: 3 }, [entrySpec('second', 'second body')]);
 
-        mod.registerSearchToolsStructuralSync(harness.context);
-
-        // Prime: a structural event with nothing to roll back syncs the book
-        // to the latest turn's snapshot.
-        await harness.eventSource.emit(event_types.MESSAGE_EDITED, 2, { playableSeq: 3, isUser: true });
-        await flush();
+        await primeLorebook();
         expect(managedEntryIds(harness.books)).toEqual(['second']);
 
         // Roll the chat back past the second user turn.
@@ -276,17 +258,11 @@ describe('shared lorebook follows chat rollback', () => {
         expect(managedEntryIds(harness.books)).toEqual(['first']);
     });
 
-    test('clears the managed entries when the only anchored turn is deleted', async () => {
+    test('clears the managed entries when the only owning turn is deleted', async () => {
         chatRef.value = [userMsg('u1'), asstMsg('a1')];
-        const anchor = buildAnchorAt(chatRef.value, 0);
-        await commitAnchorSnapshot(harness.context, anchor, makeSnapshot(anchor, {
-            managedEntries: [entrySpec('only', 'only body')],
-        }));
+        await commitManagedEntries(harness.context, { playableFloor: 1 }, [entrySpec('only', 'only body')]);
 
-        mod.registerSearchToolsStructuralSync(harness.context);
-
-        await harness.eventSource.emit(event_types.MESSAGE_EDITED, 1, { playableSeq: 2, isUser: false });
-        await flush();
+        await primeLorebook();
         expect(managedEntryIds(harness.books)).toEqual(['only']);
 
         chatRef.value = [];
@@ -296,28 +272,36 @@ describe('shared lorebook follows chat rollback', () => {
         expect(managedEntryIds(harness.books)).toEqual([]);
     });
 
-    test('re-projects the lorebook when the anchored user turn is edited', async () => {
+    test('editing a message leaves the lorebook untouched', async () => {
         chatRef.value = [userMsg('u1'), asstMsg('a1'), userMsg('u2'), asstMsg('a2')];
-        const anchorFirst = buildAnchorAt(chatRef.value, 0);
-        const anchorSecond = buildAnchorAt(chatRef.value, 2);
-        await commitAnchorSnapshot(harness.context, anchorFirst, makeSnapshot(anchorFirst, {
-            managedEntries: [entrySpec('first', 'first body')],
-        }));
-        await commitAnchorSnapshot(harness.context, anchorSecond, makeSnapshot(anchorSecond, {
-            managedEntries: [entrySpec('second', 'second body')],
-        }));
+        await commitManagedEntries(harness.context, { playableFloor: 1 }, [entrySpec('first', 'first body')]);
+        await commitManagedEntries(harness.context, { playableFloor: 3 }, [entrySpec('second', 'second body')]);
 
-        mod.registerSearchToolsStructuralSync(harness.context);
-
-        await harness.eventSource.emit(event_types.MESSAGE_EDITED, 2, { playableSeq: 3, isUser: true });
-        await flush();
+        await primeLorebook();
         expect(managedEntryIds(harness.books)).toEqual(['second']);
 
-        // Edit the anchored user turn — its stored anchor hash no longer matches.
+        // Editing the owning turn and an earlier one — neither is a data change.
         chatRef.value[2] = userMsg('u2 edited');
         await harness.eventSource.emit(event_types.MESSAGE_EDITED, 2, { playableSeq: 3, isUser: true });
         await flush();
+        chatRef.value[0] = userMsg('u1 edited');
+        await harness.eventSource.emit(event_types.MESSAGE_EDITED, 0, { playableSeq: 1, isUser: true });
+        await flush();
 
-        expect(managedEntryIds(harness.books)).toEqual(['first']);
+        expect(managedEntryIds(harness.books)).toEqual(['second']);
+    });
+
+    test('swiping an assistant reply leaves the lorebook untouched', async () => {
+        chatRef.value = [userMsg('u1'), asstMsg('a1'), userMsg('u2'), asstMsg('a2')];
+        await commitManagedEntries(harness.context, { playableFloor: 3 }, [entrySpec('second', 'second body')]);
+
+        await primeLorebook();
+        expect(managedEntryIds(harness.books)).toEqual(['second']);
+
+        chatRef.value[3] = asstMsg('a2-alt', { swipe_id: 1 });
+        await harness.eventSource.emit(event_types.MESSAGE_SWIPED, 3);
+        await flush();
+
+        expect(managedEntryIds(harness.books)).toEqual(['second']);
     });
 });

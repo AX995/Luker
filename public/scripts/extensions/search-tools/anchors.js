@@ -73,26 +73,6 @@ export function getPlayableMessageAt(messages, playableFloor) {
 }
 
 /**
- * True iff the live message at `playableFloor` is still a user turn whose
- * text hashes to `anchorHash`. Used by `pickLatestValidSnapshot` to skip
- * snapshots whose anchored message has been edited since the snapshot was
- * recorded — those snapshots remain in the data namespace as orphans, but
- * are never surfaced as the "current" snapshot.
- */
-export function isAnchoredSnapshotStillValid(messages, playableFloor, anchorHash) {
-    const target = getPlayableMessageAt(messages, playableFloor);
-    if (!target?.message || target.message.is_system || !target.message.is_user) {
-        return false;
-    }
-    const stored = String(anchorHash || '').trim();
-    if (!stored) {
-        return false;
-    }
-    const live = String(hashAnchorText(String(target.message.mes ?? '')));
-    return stored === live;
-}
-
-/**
  * Find the last user message in `messages`. Returns
  * `{ index: -1, message: null }` when the chat has no user message yet.
  */

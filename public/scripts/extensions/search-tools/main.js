@@ -6,17 +6,12 @@ import { createSearchToolsSettingsUi } from './settings-ui.js';
 import { createSearchRunPanel } from './run-panel.js';
 import {
     buildLastUserAnchor,
-    getPlayableMessageAt,
     normalizeAnchorPlayableFloor,
 } from './anchors.js';
 import {
-    commitAnchorSnapshot,
-    getFloorStateInstance,
-    loadAnchorMap,
-    loadMetaSidecar,
-    migrateLegacyAnchorsIfNeeded,
-    persistFallbackManagedEntries,
-    pickLatestValidSnapshot,
+    commitManagedEntries,
+    fromEntriesMap,
+    loadManagedEntries,
 } from './persistence.js';
 import { registerSearchToolsOrchestrationTools } from './orchestrator-tools.js';
 import {
@@ -554,49 +549,23 @@ function normalizeStoredManagedEntries(raw) {
     return output.sort((a, b) => String(a.entryId || '').localeCompare(String(b.entryId || '')));
 }
 
-function normalizeStoredSearchAgentSnapshot(raw) {
-    const source = raw && typeof raw === 'object' ? raw : null;
-    if (!source) {
-        return null;
-    }
-
-    const anchorHash = String(source.anchorHash || '').trim();
-    if (!anchorHash) {
-        return null;
-    }
-
-    const managedEntries = normalizeStoredManagedEntries(source.managedEntries);
-    return {
-        anchorHash,
-        updatedAt: String(source.updatedAt || '').trim(),
-        summary: normalizeWhitespace(source.summary || ''),
-        mutationCount: Math.max(0, Math.floor(Number(source.mutationCount || 0))),
-        managedEntryCount: Math.max(0, Math.floor(Number(source.managedEntryCount ?? managedEntries.length))),
-        bookName: normalizeWhitespace(source.bookName || ''),
-        managedEntries,
-    };
-}
-
-function materializeSearchAgentSnapshot(chatKey, anchorPlayableFloor, snapshot) {
-    const normalizedSnapshot = normalizeStoredSearchAgentSnapshot(snapshot);
+/**
+ * In-memory reuse state for the last search-agent run. Deliberately not
+ * persisted: the stored entry set is never invalidated by editing a message,
+ * and reuse is only meaningful within the session that produced it.
+ */
+function materializeSearchAgentSnapshot(chatKey, anchorPlayableFloor, { anchorHash, mutationCount } = {}) {
     const normalizedChatKey = String(chatKey || '').trim();
     const normalizedAnchor = normalizeAnchorPlayableFloor(anchorPlayableFloor);
-    if (!normalizedSnapshot || !normalizedChatKey || !normalizedAnchor) {
+    const normalizedHash = String(anchorHash || '').trim();
+    if (!normalizedChatKey || !normalizedAnchor || !normalizedHash) {
         return null;
     }
-
-    const managedEntries = normalizeStoredManagedEntries(normalizedSnapshot.managedEntries);
     return {
         chatKey: normalizedChatKey,
-        anchorFloor: normalizedAnchor,
         anchorPlayableFloor: normalizedAnchor,
-        anchorHash: String(normalizedSnapshot.anchorHash || '').trim(),
-        updatedAt: normalizedSnapshot.updatedAt,
-        summary: normalizedSnapshot.summary,
-        mutationCount: normalizedSnapshot.mutationCount,
-        managedEntryCount: managedEntries.length,
-        bookName: normalizedSnapshot.bookName,
-        managedEntries,
+        anchorHash: normalizedHash,
+        mutationCount: Math.max(0, Math.floor(Number(mutationCount || 0))),
     };
 }
 
@@ -637,40 +606,17 @@ async function loadSearchToolsChatState(context, { force = false } = {}) {
         return;
     }
 
-    // One-shot legacy upgrade. Idempotent — the persistence layer's schema
-    // sidecar marks it complete after the first run on each chat.
-    await migrateLegacyAnchorsIfNeeded(context);
-
     loadedChatStateKey = chatKey;
-    const map = await loadAnchorMap(context);
-    const pick = pickLatestValidSnapshot(context, map);
+    latestManagedEntries = fromEntriesMap(await loadManagedEntries(context));
+    // Reuse of the previous run is decided in memory, so a reload always
+    // starts with nothing to reuse.
+    latestSearchAgentSnapshot = null;
 
-    if (pick) {
-        latestSearchAgentSnapshot = materializeSearchAgentSnapshot(chatKey, pick.playableFloor, pick.snapshot);
-        latestManagedEntries = latestSearchAgentSnapshot
-            ? normalizeStoredManagedEntries(latestSearchAgentSnapshot.managedEntries)
-            : [];
-    } else {
-        // No valid snapshot — fall back to the meta sidecar's
-        // `fallbackManagedEntries`, populated only by legacy migrations.
-        latestSearchAgentSnapshot = null;
-        const meta = await loadMetaSidecar(context);
-        latestManagedEntries = normalizeStoredManagedEntries(meta.fallbackManagedEntries);
-    }
-
-    if (latestManagedEntries.length === 0 && !latestSearchAgentSnapshot) {
+    if (latestManagedEntries.length === 0) {
         // Bootstrap from a pre-existing chat lorebook on a never-touched chat.
-        const migratedEntries = await loadLegacyManagedEntries(context);
-        if (migratedEntries.length > 0) {
-            latestManagedEntries = migratedEntries;
-            try {
-                await persistFallbackManagedEntries(context, migratedEntries);
-            } catch (e) {
-                // Bootstrap fallback is best-effort — if storage rejects it
-                // (server hiccup, transport, etc.) we keep the in-memory
-                // entries and let the next manual / agent write retry.
-                console.warn(`[search-tools] bootstrap fallback persist failed: ${e.message}`);
-            }
+        const existingEntries = await loadLegacyManagedEntries(context);
+        if (existingEntries.length > 0) {
+            latestManagedEntries = existingEntries;
         }
     }
 }
@@ -1635,20 +1581,13 @@ function canReuseLatestSearchAgentSnapshot(chatKey, anchor) {
         return false;
     }
 
-    const storedFloor = Number(latestSearchAgentSnapshot.anchorFloor);
-    const incomingFloor = Number(anchor.floor);
-    const storedPlayableFloor = Number(latestSearchAgentSnapshot.anchorPlayableFloor);
-    const incomingPlayableFloor = Number(anchor.playableFloor);
-    const floorMatched = Number.isFinite(storedPlayableFloor) && Number.isFinite(incomingPlayableFloor)
-        ? storedPlayableFloor === incomingPlayableFloor
-        : storedFloor === incomingFloor;
-    return floorMatched
+    return Number(latestSearchAgentSnapshot.anchorPlayableFloor) === Number(anchor.playableFloor)
         && String(latestSearchAgentSnapshot.anchorHash || '') === String(anchor.hash || '');
 }
 
 function buildSearchAgentStatusText(result, { reused = false } = {}) {
     const mutationCount = Math.max(0, Number(result?.mutationCount || 0));
-    const managedEntryCount = Math.max(0, Number(result?.managedEntryCount || 0));
+    const managedEntryCount = Math.max(0, Number(result?.managedEntryCount ?? latestManagedEntries.length));
     if (reused) {
         return mutationCount
             ? i18n(`Search agent reused cached lorebook update (${mutationCount} changes, ${managedEntryCount} managed entries).`)
@@ -1667,68 +1606,30 @@ async function storeCompletedSearchAgentSnapshot(context, anchor, result) {
     if (!chatKey || !anchorPlayableFloor || !anchorHash) {
         latestSearchAgentSnapshot = null;
         latestManagedEntries = managedEntries;
-        // Anchor unresolvable — stash entries in the meta sidecar so the
-        // shared lorebook keeps reflecting them across reloads.
-        await persistFallbackManagedEntries(context, managedEntries);
         return null;
     }
 
-    const nextSnapshot = {
-        anchorHash,
-        updatedAt: new Date().toISOString(),
-        mutationCount: Math.max(0, Math.floor(Number(result?.mutationCount || 0))),
-        managedEntryCount: managedEntries.length,
-        bookName: normalizeWhitespace(result?.bookName || ''),
-        managedEntries,
-    };
-
-    // Compound op: drop any anchors above this floor (a fresh search at an
-    // earlier turn invalidates everything above) AND add the new snapshot,
-    // all tagged at the new anchor's user message so the cleanup survives
-    // exactly as long as the new anchor itself does.
-    const messages = Array.isArray(context?.chat) ? context.chat : [];
-    const target = getPlayableMessageAt(messages, anchorPlayableFloor);
-    if (!target?.message || !target.message.is_user) {
-        throw new Error(i18n('Failed to persist search agent snapshot.'));
-    }
-    const swipeIdRaw = target.message.swipe_id;
-    const swipeId = Number.isInteger(swipeIdRaw) && swipeIdRaw >= 0 ? swipeIdRaw : 0;
-
-    const fs = await getFloorStateInstance(context);
-    const currentMap = await loadAnchorMap(context);
-    const ops = [];
-    for (const key of Object.keys(currentMap)) {
-        const f = Number(key);
-        if (Number.isInteger(f) && f > anchorPlayableFloor) {
-            ops.push({ op: 'remove', path: `/${f}` });
-        }
-    }
-    ops.push({ op: 'add', path: `/${anchorPlayableFloor}`, value: nextSnapshot });
-    const patchResult = await fs.patch(ops, { floor: target.index, swipeId });
-    if (!patchResult.ok) {
-        console.warn(`[search-tools] floor-state patch failed (reason=${patchResult.reason}, hint=${patchResult.hint})`);
-        // Anchor lost mid-write (user message deleted or no longer is_user
-        // after we re-checked target above) — drop the snapshot and stash
-        // the entries in the meta sidecar so the change survives a reload.
-        if (patchResult.reason === 'VALIDATION_TARGET' || patchResult.reason === 'VALIDATION_COMMIT') {
+    const mutationCount = Math.max(0, Math.floor(Number(result?.mutationCount || 0)));
+    const commitResult = await commitManagedEntries(context, { playableFloor: anchorPlayableFloor }, managedEntries);
+    if (!commitResult.ok) {
+        console.warn(`[search-tools] floor-state commit failed (reason=${commitResult.reason}, hint=${commitResult.hint})`);
+        // Anchor lost mid-write (the user message was deleted or is no longer
+        // is_user) — the run's result has no owner to attach to. Keep it in
+        // memory so the shared lorebook still reflects it until the next run.
+        if (commitResult.reason === 'VALIDATION_TARGET' || commitResult.reason === 'VALIDATION_COMMIT') {
             latestSearchAgentSnapshot = null;
             latestManagedEntries = managedEntries;
-            try {
-                await persistFallbackManagedEntries(context, managedEntries);
-            } catch (e) {
-                console.warn(`[search-tools] meta sidecar fallback failed: ${e.message}`);
-            }
             return null;
         }
         // Hard failure (storage conflict, transport, replay broken, etc.) —
         // surface a reason-aware message to the UI and rethrow so the
         // caller can stop the run.
-        const msg = persistSnapshotErrorMessage(patchResult.reason);
+        const msg = persistSnapshotErrorMessage(commitResult.reason);
         updateUiStatus(msg);
         throw new Error(msg);
     }
 
-    latestSearchAgentSnapshot = materializeSearchAgentSnapshot(chatKey, anchorPlayableFloor, nextSnapshot);
+    latestSearchAgentSnapshot = materializeSearchAgentSnapshot(chatKey, anchorPlayableFloor, { anchorHash, mutationCount });
     latestManagedEntries = managedEntries;
     return latestSearchAgentSnapshot;
 }
@@ -1740,48 +1641,29 @@ async function applyManualManagedEntriesUpdate(context, nextEntries) {
         const normalized = normalizeStoredManagedEntries(nextEntries);
         latestManagedEntries = normalized;
 
-        if (latestSearchAgentSnapshot && typeof latestSearchAgentSnapshot === 'object') {
-            const updated = {
-                anchorHash: String(latestSearchAgentSnapshot.anchorHash || '').trim(),
-                updatedAt: new Date().toISOString(),
-                summary: normalizeWhitespace(latestSearchAgentSnapshot.summary || ''),
-                mutationCount: Math.max(0, Math.floor(Number(latestSearchAgentSnapshot.mutationCount || 0))),
-                managedEntryCount: normalized.length,
-                bookName: normalizeWhitespace(latestSearchAgentSnapshot.bookName || ''),
-                managedEntries: normalized,
-            };
-            const commitResult = await commitAnchorSnapshot(
-                context,
-                {
-                    playableFloor: latestSearchAgentSnapshot.anchorPlayableFloor,
-                    hash: latestSearchAgentSnapshot.anchorHash,
-                },
-                updated,
-            );
-            if (commitResult.ok) {
-                latestSearchAgentSnapshot = materializeSearchAgentSnapshot(
-                    getChatKey(context),
-                    latestSearchAgentSnapshot.anchorPlayableFloor,
-                    updated,
-                );
-            } else if (commitResult.reason === 'VALIDATION_TARGET' || commitResult.reason === 'VALIDATION_COMMIT') {
-                // Anchor no longer resolvable (user message was deleted or
-                // turned non-user) — drop the snapshot and fall back to the
-                // meta sidecar so the change survives a reload.
-                console.warn(`[search-tools] commitAnchorSnapshot anchor lost (reason=${commitResult.reason}, hint=${commitResult.hint})`);
-                latestSearchAgentSnapshot = null;
-                await persistFallbackManagedEntries(context, normalized);
-            } else {
-                // Hard failure (storage conflict, transport, replay broken,
-                // disk write failed, etc.) — keep the snapshot in place and
-                // surface to the caller. The outer try/catch restores
-                // in-memory state from snapshotBackup / entriesBackup so the
-                // UI and storage stay aligned.
-                console.error(`[search-tools] manual snapshot commit failed (reason=${commitResult.reason}, hint=${commitResult.hint})`);
-                throw new Error(i18n('Failed to update managed entries. See console for details.'));
+        // Manual edits live in the same store as agent results. Without an
+        // in-memory run anchor, attribute them to the current last user turn.
+        const anchor = latestSearchAgentSnapshot && typeof latestSearchAgentSnapshot === 'object'
+            ? { playableFloor: latestSearchAgentSnapshot.anchorPlayableFloor }
+            : buildLastUserAnchor(context, []);
+        if (anchor) {
+            const commitResult = await commitManagedEntries(context, anchor, normalized);
+            if (!commitResult.ok) {
+                if (commitResult.reason === 'VALIDATION_TARGET' || commitResult.reason === 'VALIDATION_COMMIT') {
+                    // Anchor no longer resolvable (user message was deleted or
+                    // turned non-user) — keep the change in memory; the next
+                    // run commits it.
+                    console.warn(`[search-tools] manual commit anchor lost (reason=${commitResult.reason}, hint=${commitResult.hint})`);
+                    latestSearchAgentSnapshot = null;
+                } else {
+                    // Hard failure (storage conflict, transport, replay broken,
+                    // disk write failed, etc.) — surface to the caller. The
+                    // outer try/catch restores in-memory state so the UI and
+                    // storage stay aligned.
+                    console.error(`[search-tools] manual commit failed (reason=${commitResult.reason}, hint=${commitResult.hint})`);
+                    throw new Error(i18n('Failed to update managed entries. See console for details.'));
+                }
             }
-        } else {
-            await persistFallbackManagedEntries(context, normalized);
         }
 
         await syncSharedLorebookForCurrentChat(context);
@@ -2409,23 +2291,19 @@ async function maybeRunPreRequestSearchAgent(payload) {
 
 /**
  * Identity of what the shared lorebook currently projects. A structural chat
- * change that does not move the anchored user turn (e.g. swiping an assistant
- * reply) leaves this unchanged, so the lorebook does not need another write.
+ * change that does not move the committed entry set (e.g. swiping an
+ * assistant reply) leaves this unchanged, so the lorebook does not need
+ * another write.
  */
 function describeSelectedSearchSnapshot() {
-    return JSON.stringify({
-        floor: latestSearchAgentSnapshot?.anchorPlayableFloor ?? null,
-        hash: latestSearchAgentSnapshot?.anchorHash ?? null,
-        entries: latestManagedEntries,
-    });
+    return JSON.stringify(latestManagedEntries);
 }
 
 /**
  * Re-read the chat-scoped search state and re-project it onto the shared
  * lorebook. floor-state settles its commit log before core emits each
- * structural event, so by the time this runs the anchor map already reflects
- * the deletion / swipe / edit and `pickLatestValidSnapshot` yields the state
- * the chat has rolled back to.
+ * structural event, so by the time this runs the stored entry set already
+ * reflects the deletion / swipe.
  */
 async function resyncSearchToolsStateAfterStructuralChange() {
     const context = getContext();
@@ -2444,6 +2322,30 @@ async function resyncSearchToolsStateAfterStructuralChange() {
         }
     }
     await refreshUiStatusForCurrentChat();
+}
+
+/**
+ * Drop the cached chat state and re-project it whenever the active chat
+ * changes. Exported so tests can drive the wiring without the DOM-ready path.
+ */
+function registerSearchToolsChatChangedSync(context = getContext()) {
+    if (!context?.eventTypes?.CHAT_CHANGED) {
+        return;
+    }
+    context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
+        abortActiveSearchAgentRun();
+        loadedChatStateKey = '';
+        latestSearchAgentSnapshot = null;
+        latestManagedEntries = [];
+        const liveContext = getContext();
+        void loadSearchToolsChatState(liveContext, { force: true })
+            .then(() => syncSharedLorebookForCurrentChat(liveContext))
+            .catch((error) => {
+                console.warn(`[${MODULE_NAME}] Failed to reload search chat state on chat change`, error);
+                return syncSharedLorebookForCurrentChat(liveContext);
+            })
+            .finally(() => refreshUiStatusForCurrentChat());
+    });
 }
 
 /**
@@ -2797,23 +2699,7 @@ jQuery(() => {
         });
     }
 
-    if (context?.eventTypes?.CHAT_CHANGED) {
-        context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
-            abortActiveSearchAgentRun();
-            loadedChatStateKey = '';
-            latestSearchAgentSnapshot = null;
-            latestManagedEntries = [];
-            const liveContext = getContext();
-            void loadSearchToolsChatState(liveContext, { force: true })
-                .then(() => syncSharedLorebookForCurrentChat(liveContext))
-                .catch((error) => {
-                    console.warn(`[${MODULE_NAME}] Failed to reload search chat state on chat change`, error);
-                    return syncSharedLorebookForCurrentChat(liveContext);
-                })
-                .finally(() => refreshUiStatusForCurrentChat());
-        });
-    }
-
+    registerSearchToolsChatChangedSync(context);
     registerSearchToolsStructuralSync(context);
 
     if (context?.eventTypes?.PRESET_CHANGED) {
@@ -2853,6 +2739,7 @@ export {
     buildManagedEntryCatalog,
     DEFAULT_SETTINGS,
     getManagedEntriesByIds,
+    registerSearchToolsChatChangedSync,
     registerSearchToolsStructuralSync,
     runPreRequestSearchAgent,
     TOOL_NAMES,
