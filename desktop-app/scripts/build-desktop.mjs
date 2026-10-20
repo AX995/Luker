@@ -26,7 +26,12 @@ const desktopDir = path.resolve(import.meta.dirname, '..');
 
 await prepareBackend();
 
-const result = spawnSync('npx', ['electron-builder', `--${platform}`, `-c.extraMetadata.version=${version}`], {
+// `--publish never` keeps the packaging run from resolving a publisher at the
+// end. The manifest carries a repository URL so the deb and rpm targets write
+// their install flavour marker, and on a CI machine that URL is enough for
+// electron-builder to construct a GitHub publisher, which aborts the whole
+// build when no token is present. Releases are published from the workflow.
+const result = spawnSync('npx', ['electron-builder', `--${platform}`, '--publish', 'never', `-c.extraMetadata.version=${version}`], {
     cwd: desktopDir,
     stdio: 'inherit',
     // `npx` is a shell script on POSIX and a `.cmd` shim on Windows; the
