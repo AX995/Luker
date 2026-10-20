@@ -21,6 +21,7 @@ class LukerApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         installUncaughtExceptionHandler()
+        enableWebViewDebugging()
         initDebugRecording()
         warmUpWebViewProvider()
     }
@@ -82,25 +83,39 @@ class LukerApplication : Application() {
     }
 
     /**
-     * Idempotent. Turns on WebView remote-debugging (a process-global,
-     * unreversible Chromium switch) and starts the CDP collector. Safe to
-     * call from anywhere in the app process at any time.
+     * Idempotent. Turns on WebView remote debugging — a process-global,
+     * unreversible Chromium switch. Called unconditionally on every cold
+     * start so a user can attach tooling without a debug build; the switch
+     * itself carries no runtime cost, it only makes the renderer's devtools
+     * socket reachable to same-uid processes.
      *
-     * The caller is responsible for informing the user that this only
-     * attaches to renderers created *after* this call — for the currently
-     * loaded WebView they need to restart the app to get CDP coverage of
-     * the first page load.
+     * Only renderers created *after* this call are covered; for the WebView
+     * that is already loaded the app must restart.
+     *
+     * @return true when the switch is on.
      */
-    fun armWebViewCdp() {
-        val debugArmed = runCatching {
+    fun enableWebViewDebugging(): Boolean {
+        val armed = runCatching {
             WebView.setWebContentsDebuggingEnabled(true)
             true
         }.getOrElse { t ->
             LukerDebugTrail.append("native", "cdp-collector state=abort-webview-debug err=${t.message ?: t.javaClass.simpleName}")
             false
         }
-        if (debugArmed) {
+        if (armed) {
             LukerDebugTrail.append("native", "cdp-collector state=arm debug-enabled=true")
+        }
+        return armed
+    }
+
+    /**
+     * Idempotent. Starts the always-on CDP collector, which streams the
+     * renderer's console/runtime events into a rotating ring on disk. Gated
+     * by the "Android debug recording" pref — unlike the debug switch itself,
+     * the collector writes continuously and must stay opt-in.
+     */
+    fun armWebViewCdp() {
+        if (enableWebViewDebugging()) {
             LukerCdpCollector.start(this)
         }
     }
