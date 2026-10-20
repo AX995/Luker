@@ -9,7 +9,7 @@
 
 import { _electron as electron } from '@playwright/test';
 import { createRequire } from 'node:module';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { reservePort } from './ports.js';
 import { cloneDataDir, SCRATCH_ROOT } from './server.js';
@@ -89,15 +89,22 @@ export async function launchLukerDesktop({ scenarioId = 'default', passPort = tr
     };
 
     handle.relaunch = async () => {
-        await handle.close();
+        await handle.close({ removeData: false });
         await open();
     };
 
-    handle.close = async () => {
+    // The data root is a full clone of the seed tree, so a spec that leaves it
+    // behind grows `tests/.e2e-scratch` by one data tree per run. Closing drops
+    // it, except mid-relaunch, where the next open reuses the same directory.
+    handle.close = async ({ removeData = true } = {}) => {
         const electronApp = handle.electronApp;
-        if (!electronApp) return;
-        handle.electronApp = null;
-        await electronApp.close();
+        if (electronApp) {
+            handle.electronApp = null;
+            await electronApp.close();
+        }
+        if (removeData && handle.userData.startsWith(SCRATCH_ROOT)) {
+            rmSync(handle.userData, { recursive: true, force: true });
+        }
     };
 
     await open();
