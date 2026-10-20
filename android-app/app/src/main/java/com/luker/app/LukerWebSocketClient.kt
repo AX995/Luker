@@ -26,12 +26,15 @@ import kotlin.experimental.xor
  * Supports text opcode + fragmentation via continuation. Ping is auto-Ponged.
  * Close and unknown opcodes throw IOException.
  *
- * Payload cap: MAX_MESSAGE_BYTES per assembled message; exceeding it
- * throws IOException so the caller can log payload-oversize.
+ * Payload cap: one assembled message may not exceed `maxMessageBytes`;
+ * exceeding it throws IOException so the caller can log payload-oversize.
+ * The always-on collector keeps the 1 MB default; capture sessions raise it
+ * because a heap-snapshot chunk is a slice of the whole snapshot text.
  */
 class LukerWebSocketClient(
     private val input: InputStream,
     private val output: OutputStream,
+    private val maxMessageBytes: Int = DEFAULT_MAX_MESSAGE_BYTES,
 ) {
     private val din = DataInputStream(input)
     private val dout = DataOutputStream(output)
@@ -44,7 +47,7 @@ class LukerWebSocketClient(
         private const val OPCODE_CLOSE: Byte = 0x8
         private const val OPCODE_PING: Byte = 0x9
         private const val OPCODE_PONG: Byte = 0xA.toByte()
-        private const val MAX_MESSAGE_BYTES = 1024 * 1024
+        const val DEFAULT_MAX_MESSAGE_BYTES = 1024 * 1024
     }
 
     /**
@@ -142,7 +145,7 @@ class LukerWebSocketClient(
             var len = (b1 and 0x7F).toLong()
             if (len == 126L) len = din.readUnsignedShort().toLong()
             else if (len == 127L) len = din.readLong()
-            if (len < 0 || len > MAX_MESSAGE_BYTES) throw IOException("ws-read: frame len $len exceeds cap")
+            if (len < 0 || len > maxMessageBytes) throw IOException("ws-read: frame len $len exceeds cap")
             val payload = ByteArray(len.toInt())
             din.readFully(payload)
             when (opcode) {
@@ -159,8 +162,8 @@ class LukerWebSocketClient(
                 OPCODE_BIN -> throw IOException("ws-read: binary opcode not supported")
                 else -> throw IOException("ws-read: unknown opcode ${opcode.toInt()}")
             }
-            if (assembled.size() + payload.size > MAX_MESSAGE_BYTES) {
-                throw IOException("ws-read: assembled message exceeds ${MAX_MESSAGE_BYTES} bytes")
+            if (assembled.size() + payload.size > maxMessageBytes) {
+                throw IOException("ws-read: assembled message exceeds $maxMessageBytes bytes")
             }
             assembled.write(payload)
             if (fin) return assembled.toString("UTF-8")

@@ -13,10 +13,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Process
 import android.os.SystemClock
 import android.text.InputType
 import android.util.Base64
@@ -56,11 +58,15 @@ import androidx.core.view.ViewCompat
 import java.io.File
 import java.io.BufferedInputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
 import java.util.ArrayDeque
+import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -435,6 +441,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                // A navigation tears the CDP session down: the renderer that
+                // owned the tracing connection is replaced. Finalize the
+                // recording instead of leaving a dangling socket behind.
+                if (LukerCdpCapture.abortTrace()) {
+                    notifyDebugCapture("onCaptureFailed", "trace", "The page navigated while recording.")
+                }
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 recentHttpAuthAttempts.clear()
                 installBlobDownloadBridge()
@@ -455,6 +470,9 @@ class MainActivity : AppCompatActivity() {
                     view?.destroy()
                 }
                 LukerDebugTrail.append("native", "renderProcessGone didCrash=$crashed url=$url")
+                if (LukerCdpCapture.abortTrace()) {
+                    notifyDebugCapture("onCaptureFailed", "trace", "The renderer process exited while recording.")
+                }
                 val crash = LukerCrashCapture.captureWebViewCrash(
                     context = applicationContext,
                     webViewUrl = url,
@@ -985,6 +1003,96 @@ class MainActivity : AppCompatActivity() {
                 exportAndShareDiagnosticsBundle(R.string.debug_export_share_subject)
             }
         }
+
+        /**
+         * Takes a renderer JS heap snapshot and hands the file to the download
+         * bridge. Returns immediately: the capture runs on its own thread, and
+         * the page is told the outcome through `window.LukerDebugCapture`.
+         * Returns false when a capture is already running.
+         */
+        @JavascriptInterface
+        fun captureHeapSnapshot(): Boolean {
+            if (!LukerCdpCapture.tryBeginHeapCapture()) return false
+            val target = File(captureDir(), "luker-heap-${captureStamp()}.heapsnapshot")
+            startCaptureThread("luker-heap-capture") {
+                try {
+                    LukerCdpCapture.captureHeapSnapshot(Process.myPid(), target)
+                    LukerCdpCapture.endHeapCapture()
+                    enqueueLocalFileRequest(target, target.name, "application/octet-stream")
+                    notifyDebugCapture("onCaptureReady", "heap")
+                } catch (t: Throwable) {
+                    LukerCdpCapture.endHeapCapture()
+                    LukerDebugTrail.append("native", "cdp-capture state=heap-fail err=${t.message ?: t.javaClass.simpleName}")
+                    notifyDebugCapture("onCaptureFailed", "heap", t.message ?: t.javaClass.simpleName)
+                }
+            }
+            return true
+        }
+
+        /** Starts a performance recording. Returns false when one is running. */
+        @JavascriptInterface
+        fun startPerformanceTrace(): Boolean {
+            if (LukerCdpCapture.isTraceRecording()) return false
+            val target = File(captureDir(), "luker-trace-${captureStamp()}.json")
+            startCaptureThread("luker-trace-start") {
+                try {
+                    LukerCdpCapture.startTrace(Process.myPid(), target)
+                    notifyDebugCapture("onCaptureReady", "trace")
+                } catch (t: Throwable) {
+                    LukerDebugTrail.append("native", "cdp-capture state=trace-start-fail err=${t.message ?: t.javaClass.simpleName}")
+                    notifyDebugCapture("onCaptureFailed", "trace", t.message ?: t.javaClass.simpleName)
+                }
+            }
+            return true
+        }
+
+        /**
+         * Ends the recording and hands the trace to the download bridge.
+         * Returns false when nothing is recording.
+         */
+        @JavascriptInterface
+        fun stopPerformanceTrace(): Boolean {
+            if (!LukerCdpCapture.isTraceRecording()) return false
+            startCaptureThread("luker-trace-stop") {
+                try {
+                    val file = LukerCdpCapture.stopTrace()
+                    enqueueLocalFileRequest(file, file.name, "application/json")
+                    notifyDebugCapture("onCaptureReady", "trace")
+                } catch (t: Throwable) {
+                    LukerDebugTrail.append("native", "cdp-capture state=trace-stop-fail err=${t.message ?: t.javaClass.simpleName}")
+                    notifyDebugCapture("onCaptureFailed", "trace", t.message ?: t.javaClass.simpleName)
+                }
+            }
+            return true
+        }
+
+        @JavascriptInterface
+        fun isPerformanceTraceRecording(): Boolean = LukerCdpCapture.isTraceRecording()
+    }
+
+    private fun captureDir(): File = File(filesDir, LukerCdpCollector.CDP_DIR_NAME)
+
+    private fun captureStamp(): String =
+        SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+
+    private fun startCaptureThread(name: String, body: () -> Unit) {
+        Thread(body, name).apply { isDaemon = true }.start()
+    }
+
+    /**
+     * Reports a capture outcome to the page. `evaluateJavascript` runs on the
+     * UI thread, so the call is posted there; the page may have navigated away
+     * in the meantime, hence the `window.LukerDebugCapture &&` guard.
+     */
+    private fun notifyDebugCapture(fn: String, kind: String, message: String? = null) {
+        if (!this::webView.isInitialized) return
+        val args = if (message == null) {
+            JSONObject.quote(kind)
+        } else {
+            "${JSONObject.quote(kind)}, ${JSONObject.quote(message)}"
+        }
+        val script = "window.LukerDebugCapture && window.LukerDebugCapture.$fn($args);"
+        webView.post { if (this::webView.isInitialized) webView.evaluateJavascript(script, null) }
     }
 
     private var lastAppliedStatusBarColor: Int? = null
@@ -1659,7 +1767,17 @@ class MainActivity : AppCompatActivity() {
     private fun performStreamDownload(req: StreamRequest, targetUri: Uri) {
         var connection: HttpURLConnection? = null
         try {
+            val localFile = req.localFile
+            if (localFile != null) {
+                performLocalFileDownload(req, localFile, targetUri)
+                return
+            }
+
             val resolvedUrl = req.url
+            if (resolvedUrl == null) {
+                showStreamDownloadFailure(req.fileName, "no url and no local file")
+                return
+            }
 
             connection = (URL(resolvedUrl).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15000
@@ -1727,25 +1845,10 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             outStream.use { out ->
-                BufferedInputStream(connection.inputStream, 16384).use { input ->
-                    val buffer = ByteArray(16384)
-                    var bytesWritten = 0L
-                    var lastNotifyAtBytes = 0L
-                    var lastNotifyAtMs = System.currentTimeMillis()
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        out.write(buffer, 0, read)
-                        bytesWritten += read
-                        val now = System.currentTimeMillis()
-                        if (bytesWritten - lastNotifyAtBytes >= 200 * 1024 || now - lastNotifyAtMs >= 250) {
-                            postStreamProgressNotification(req.fileName, bytesWritten, totalLength)
-                            lastNotifyAtBytes = bytesWritten
-                            lastNotifyAtMs = now
-                        }
+                BufferedInputStream(connection.inputStream, COPY_BUFFER_BYTES).use { input ->
+                    copyWithProgress(input, out, totalLength) { done, total ->
+                        postStreamProgressNotification(req.fileName, done, total)
                     }
-                    out.flush()
-                    postStreamProgressNotification(req.fileName, bytesWritten, totalLength)
                 }
             }
             postStreamSuccessNotification(req.fileName, targetUri, req.mimeType)
@@ -1760,6 +1863,67 @@ class MainActivity : AppCompatActivity() {
             runCatching { connection?.disconnect() }
             synchronized(streamQueueLock) { activeDownloadRequest = null }
             runOnUiThread { pumpStreamQueue() }
+        }
+    }
+
+    /**
+     * Queues a capture artifact for delivery through the same SAF picker and
+     * progress notifications as a stream download. There is no URL to check
+     * for same-origin: the bytes are already local. Callable from any thread —
+     * the picker must be launched on the UI thread.
+     */
+    private fun enqueueLocalFileRequest(file: File, fileName: String, mimeType: String) {
+        val req = StreamRequest(
+            id = UUID.randomUUID().toString(),
+            url = null,
+            method = "GET",
+            headers = emptyMap(),
+            body = null,
+            fileName = sanitizeFileName(fileName),
+            mimeType = mimeType.ifBlank { "application/octet-stream" },
+            localFile = file,
+        )
+        runOnUiThread {
+            synchronized(streamQueueLock) { streamRequestQueue.add(req) }
+            pumpStreamQueue()
+        }
+    }
+
+    /**
+     * Copies an on-device artifact to the user's chosen location. The source
+     * file is deleted only after the success notification, so a failed save
+     * leaves it on disk rather than half-delivered.
+     */
+    private fun performLocalFileDownload(req: StreamRequest, file: File, targetUri: Uri) {
+        if (!file.isFile) {
+            showStreamDownloadFailure(req.fileName, "missing local file ${file.name}")
+            return
+        }
+        val totalLength = file.length()
+        postStreamProgressNotification(req.fileName, 0L, totalLength)
+        val outStream = contentResolver.openOutputStream(targetUri, "w")
+        if (outStream == null) {
+            Log.w(tag, "openOutputStream returned null for $targetUri")
+            showStreamDownloadFailure(req.fileName, "saf open null")
+            return
+        }
+        try {
+            outStream.use { out ->
+                file.inputStream().use { input ->
+                    copyWithProgress(input, out, totalLength) { done, total ->
+                        postStreamProgressNotification(req.fileName, done, total)
+                    }
+                }
+            }
+            postStreamSuccessNotification(req.fileName, targetUri, req.mimeType)
+            runOnUiThread {
+                Toast.makeText(this, getString(R.string.download_saved, req.fileName), Toast.LENGTH_SHORT).show()
+            }
+            file.delete()
+        } catch (t: Throwable) {
+            Log.e(tag, "Local file download failed for ${req.fileName}", t)
+            val reason = "${t.javaClass.simpleName}: ${t.message ?: "no message"}"
+            showStreamDownloadFailure(req.fileName, reason)
         }
     }
 
@@ -2574,11 +2738,58 @@ class MainActivity : AppCompatActivity() {
 
     private data class StreamRequest(
         val id: String,
-        val url: String,
+        val url: String?,
         val method: String,
         val headers: Map<String, String>,
         val body: ByteArray?,
         val fileName: String,
         val mimeType: String,
+        /**
+         * When set, the request copies this local file instead of fetching
+         * [url]. Capture artifacts are already on disk; streaming them back
+         * through a local HTTP endpoint would only add a hop.
+         */
+        val localFile: File? = null,
     )
 }
+
+/**
+ * Streams [input] into [out], reporting progress every 200 KB or 250 ms and
+ * once more when the copy ends. [totalLength] is the expected size, or any
+ * value <= 0 when it is unknown. Returns the number of bytes copied.
+ *
+ * Shared by the HTTP stream download and the local-file download so both
+ * produce the same progress notifications.
+ */
+internal fun copyWithProgress(
+    input: InputStream,
+    out: OutputStream,
+    totalLength: Long,
+    onProgress: (Long, Long) -> Unit,
+): Long {
+    val buffer = ByteArray(COPY_BUFFER_BYTES)
+    var written = 0L
+    var lastNotifyAtBytes = 0L
+    var lastNotifyAtMs = System.currentTimeMillis()
+    while (true) {
+        val read = input.read(buffer)
+        if (read <= 0) break
+        out.write(buffer, 0, read)
+        written += read
+        val now = System.currentTimeMillis()
+        if (written - lastNotifyAtBytes >= PROGRESS_NOTIFY_BYTES ||
+            now - lastNotifyAtMs >= PROGRESS_NOTIFY_INTERVAL_MS
+        ) {
+            onProgress(written, totalLength)
+            lastNotifyAtBytes = written
+            lastNotifyAtMs = now
+        }
+    }
+    out.flush()
+    onProgress(written, totalLength)
+    return written
+}
+
+private const val COPY_BUFFER_BYTES = 16384
+private const val PROGRESS_NOTIFY_BYTES = 200L * 1024
+private const val PROGRESS_NOTIFY_INTERVAL_MS = 250L
