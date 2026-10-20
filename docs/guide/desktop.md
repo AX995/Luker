@@ -1,5 +1,5 @@
 ---
-description: Luker provides a desktop app that runs the complete Luker server and interface as a standalone application on macOS, Windows, and Linux. This guide covers downloading, installing, the first-launch security prompts, and where the app stores its data.
+description: Luker provides a desktop app that runs the complete Luker server and interface as a standalone application on macOS, Windows, and Linux. This guide covers downloading, installing, the first-launch security prompts, where the app stores its data, and uninstalling.
 ---
 
 # Desktop App
@@ -81,6 +81,12 @@ Inside it:
 - `backups/` — chat backups
 - `plugins/` — server plugins
 - `extensions/third-party/` — third-party extensions
+
+## Uninstall
+
+Uninstalling removes the app itself and leaves the data directory untouched, for both the installer and the no-install form. Chats, presets, and settings stay in place, and a later install uses them again.
+
+To remove everything as well, delete the data directory listed above after uninstalling.
 
 ## Closing the Window
 
