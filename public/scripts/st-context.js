@@ -2151,7 +2151,11 @@ function normalizeWorldInfoSourceMessages(messages) {
             continue;
         }
         const hasChatShape = Object.hasOwn(message, 'mes') || Object.hasOwn(message, 'is_user') || Object.hasOwn(message, 'is_system');
-        const role = normalizeLayoutRole(message.role);
+        // Chat-shaped messages carry their role in `is_user` / `is_system`;
+        // an absent `role` must not default to 'system', or every real chat
+        // message gets filtered out below as a system message.
+        const hasRole = Object.hasOwn(message, 'role') && String(message.role ?? '').trim() !== '';
+        const role = hasRole ? normalizeLayoutRole(message.role) : (hasChatShape ? '' : 'system');
         const text = hasChatShape
             ? String(message.mes ?? message.content ?? message.text ?? '').trim()
             : String(message.content ?? message.text ?? '').trim();
