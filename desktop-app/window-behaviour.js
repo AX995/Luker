@@ -22,3 +22,30 @@ export function hidesOnClose(platform) {
 export function usesTray(platform) {
     return platform === 'win32';
 }
+
+/**
+ * Which devtools action a key event triggers, or null when the key is not a
+ * devtools shortcut. macOS always returns null: its application menu already
+ * binds the toggle, so a second handler there would fire alongside the menu
+ * accelerator and the two would cancel out.
+ * @param {NodeJS.Platform} platform
+ * @param {{key?: string, control?: boolean, shift?: boolean}} input
+ * @returns {'toggle' | null}
+ */
+export function devtoolsShortcutFor(platform, input) {
+    if (platform === 'darwin') {
+        return null;
+    }
+
+    const key = String(input?.key ?? '');
+    if (key === 'F12') {
+        return 'toggle';
+    }
+
+    // Shift makes the reported key an uppercase 'I', so compare case-insensitively.
+    if (input?.control && input?.shift && key.toLowerCase() === 'i') {
+        return 'toggle';
+    }
+
+    return null;
+}

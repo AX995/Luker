@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 import { replaceRunningAppImage } from './appimage-update.js';
 import { detectInstallFlavour } from './install-flavour.js';
-import { hidesOnClose, usesTray } from './window-behaviour.js';
+import { hidesOnClose, usesTray, devtoolsShortcutFor } from './window-behaviour.js';
 
 // Electron's main process exposes V8's WebAssembly but not the streaming
 // compile helpers, which live at the Blink layer in Chromium. Emscripten-built
@@ -484,6 +484,17 @@ app.whenReady().then(async () => {
         },
     });
     routeExternalNavigation(win.webContents);
+
+    // macOS keeps an application menu that already binds the devtools toggle,
+    // so the handler would race it. Only the menu-less platforms get one.
+    if (process.platform !== 'darwin') {
+        win.webContents.on('before-input-event', (event, input) => {
+            if (devtoolsShortcutFor(process.platform, input) === 'toggle') {
+                event.preventDefault();
+                win.webContents.toggleDevTools();
+            }
+        });
+    }
 
     win.on('close', (event) => {
         if (quitting || !hidesOnClose(process.platform)) {
