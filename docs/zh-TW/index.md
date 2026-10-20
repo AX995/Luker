@@ -31,5 +31,5 @@ features:
     details: 角色可以在對話中途聯網搜尋，使用搜尋外掛中設定的 provider——既可以作為模型自行呼叫的工具，也可以作為預請求 agent，在生成前自動搜尋並將結果寫入世界書。
   - icon: 🖥️
     title: 獨立 App
-    details: 以桌面端或行動端 App 執行完整的伺服端和介面，支援 macOS、Windows、Android、HarmonyOS。開啟即可開始對話——不需要 Termux、不需要手動安裝 Node、不需要連接埠轉送。
+    details: 以桌面端或行動端 App 執行完整的伺服端和介面，支援 macOS、Windows、Linux、Android、HarmonyOS。開啟即可開始對話——不需要 Termux、不需要手動安裝 Node、不需要連接埠轉送。
 ---

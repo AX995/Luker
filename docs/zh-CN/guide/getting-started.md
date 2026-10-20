@@ -10,7 +10,7 @@ Luker 可以运行在你自己的电脑或手机上。选择适合你的方式�
 
 | 平台 | 获取方式 | 所需依赖 |
 | --- | --- | --- |
-| 桌面端（macOS、Windows） | [桌面端 App](/zh-CN/guide/desktop) | 无 |
+| 桌面端（macOS、Windows、Linux） | [桌面端 App](/zh-CN/guide/desktop) | 无 |
 | Android | [Android App](/zh-CN/guide/android) | 无 |
 | HarmonyOS | [从源码构建](/zh-CN/guide/harmonyos) | Node.js >= 24.0、DevEco Studio |
 

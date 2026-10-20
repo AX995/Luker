@@ -10,7 +10,7 @@ Run the complete Luker server and interface inside a single app. Opening it show
 
 | Platform | How to get it | Requirements |
 | --- | --- | --- |
-| Desktop (macOS, Windows) | [Desktop App](/guide/desktop) | None |
+| Desktop (macOS, Windows, Linux) | [Desktop App](/guide/desktop) | None |
 | Android | [Android App](/guide/android) | None |
 | HarmonyOS | [Build from source](/guide/harmonyos) | Node.js >= 24.0, DevEco Studio |
 

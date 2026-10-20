@@ -16,7 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
-[![Desktop app](https://img.shields.io/badge/download-Windows%20%26%20macOS-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
+[![Desktop app](https://img.shields.io/badge/download-Windows%2C%20macOS%20%26%20Linux-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
 
 </div>
 
@@ -93,9 +93,9 @@ The Luker backend also runs inside a HarmonyOS app. Build the HAP from source wi
 
 → [HarmonyOS app guide](https://luker.cups.moe/guide/harmonyos)
 
-### Native desktop app — Windows and macOS
+### Native desktop app — Windows, macOS, and Linux
 
-The Luker backend also runs *inside* a packaged desktop app. Download the installer or the archive for your platform from Releases, open it, allow it past the first-launch security prompt, and the full server and UI run in a native window — no terminal, no Node install, no port forwarding.
+The Luker backend also runs *inside* a packaged desktop app. Download the installer or the archive for your platform from Releases, open it, allow it past the first-launch security prompt on macOS and Windows, and the full server and UI run in a native window — no terminal, no Node install, no port forwarding.
 
 → [Desktop app guide](https://luker.cups.moe/guide/desktop)
 

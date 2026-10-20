@@ -80,7 +80,7 @@ Pair two Luker instances on the same network and keep chats, cards, world info, 
 
 ### Standalone App
 
-Run the complete server and interface as a desktop or mobile app for macOS, Windows, Android, or HarmonyOS. The app runs everything itself — no Termux, no manual Node install, no port forwarding.
+Run the complete server and interface as a desktop or mobile app for macOS, Windows, Linux, Android, or HarmonyOS. The app runs everything itself — no Termux, no manual Node install, no port forwarding.
 
 → [Desktop App Guide](/guide/desktop)　·　[Android App Guide](/guide/android)　·　[HarmonyOS App Guide](/guide/harmonyos)
 

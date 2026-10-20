@@ -16,7 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
-[![Desktop app](https://img.shields.io/badge/download-Windows%20%26%20macOS-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
+[![Desktop app](https://img.shields.io/badge/download-Windows%2C%20macOS%20%26%20Linux-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
 
 </div>
 
@@ -93,9 +93,9 @@ Luker のバックエンドは HarmonyOS アプリの*中*でも動きます。D
 
 → [HarmonyOS アプリガイド](https://luker.cups.moe/guide/harmonyos)
 
-### ネイティブデスクトップアプリ — Windows と macOS
+### ネイティブデスクトップアプリ — Windows、macOS、Linux
 
-Luker のバックエンドはパッケージ化されたデスクトップアプリの*中*でも動きます。Releases からお使いのプラットフォーム向けのインストーラーまたはアーカイブを入手して開き、初回起動時のセキュリティ警告を許可すれば、完全なサーバーと UI がネイティブウィンドウで動作します。ターミナルも、手動での Node インストールも、ポートフォワーディングも不要です。
+Luker のバックエンドはパッケージ化されたデスクトップアプリの*中*でも動きます。Releases からお使いのプラットフォーム向けのインストーラーまたはアーカイブを入手して開き、macOS と Windows では初回起動時のセキュリティ警告を許可すれば、完全なサーバーと UI がネイティブウィンドウで動作します。ターミナルも、手動での Node インストールも、ポートフォワーディングも不要です。
 
 → [デスクトップアプリガイド](https://luker.cups.moe/guide/desktop)
 

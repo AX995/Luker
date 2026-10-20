@@ -31,5 +31,5 @@ features:
     details: 角色可以在对话中途联网搜索，使用搜索插件中配置的 provider——既可以作为模型自行调用的工具，也可以作为预请求 agent，在生成前自动搜索并将结果写入世界书。
   - icon: 🖥️
     title: 独立 App
-    details: 以桌面端或移动端 App 运行完整的服务端和界面，支持 macOS、Windows、Android、HarmonyOS。打开即可开始对话——不需要 Termux、不需要手动安装 Node、不需要端口转发。
+    details: 以桌面端或移动端 App 运行完整的服务端和界面，支持 macOS、Windows、Linux、Android、HarmonyOS。打开即可开始对话——不需要 Termux、不需要手动安装 Node、不需要端口转发。
 ---

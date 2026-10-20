@@ -80,7 +80,7 @@ Luker 內建了多個面向角色扮演場景的專業工具——記憶圖、�
 
 ### 獨立 App
 
-以桌面端或行動端 App 執行完整的伺服端和介面，支援 macOS、Windows、Android、HarmonyOS。後端完全在 App 內執行——不需要 Termux、不需要手動安裝 Node、不需要連接埠轉送。
+以桌面端或行動端 App 執行完整的伺服端和介面，支援 macOS、Windows、Linux、Android、HarmonyOS。後端完全在 App 內執行——不需要 Termux、不需要手動安裝 Node、不需要連接埠轉送。
 
 → [桌面端 App 指南](/zh-TW/guide/desktop)　·　[Android App 指南](/zh-TW/guide/android)　·　[HarmonyOS App 指南](/zh-TW/guide/harmonyos)
 

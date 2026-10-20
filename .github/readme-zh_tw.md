@@ -16,7 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe/zh-TW/)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
-[![Desktop app](https://img.shields.io/badge/download-Windows%20%26%20macOS-0078d4?style=flat)](https://luker.cups.moe/zh-TW/guide/desktop)
+[![Desktop app](https://img.shields.io/badge/download-Windows%2C%20macOS%20%26%20Linux-0078d4?style=flat)](https://luker.cups.moe/zh-TW/guide/desktop)
 
 </div>
 
@@ -93,9 +93,9 @@ Luker 的後端同樣**內嵌於** HarmonyOS 應用執行。用 DevEco Studio �
 
 → [HarmonyOS 應用指南](https://luker.cups.moe/zh-TW/guide/harmonyos)
 
-### 原生桌面應用 —— Windows 與 macOS
+### 原生桌面應用 —— Windows、macOS、Linux
 
-Luker 的後端同樣**內嵌於**打包好的桌面應用執行。從 Releases 下載對應平台的安裝包或壓縮包，開啟並放行首次啟動的安全提示，即可在原生視窗中執行完整的伺服器端與介面——無需終端、無需手動安裝 Node、無需連接埠轉送。
+Luker 的後端同樣**內嵌於**打包好的桌面應用執行。從 Releases 下載對應平台的安裝包或壓縮包，開啟，在 macOS 與 Windows 上放行首次啟動的安全提示，即可在原生視窗中執行完整的伺服器端與介面——無需終端、無需手動安裝 Node、無需連接埠轉送。
 
 → [桌面版應用指南](https://luker.cups.moe/zh-TW/guide/desktop)
 

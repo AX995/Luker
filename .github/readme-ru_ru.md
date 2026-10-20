@@ -16,7 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
-[![Desktop app](https://img.shields.io/badge/download-Windows%20%26%20macOS-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
+[![Desktop app](https://img.shields.io/badge/download-Windows%2C%20macOS%20%26%20Linux-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
 
 </div>
 
@@ -93,9 +93,9 @@ Luker построен на базе [SillyTavern](https://github.com/SillyTaver
 
 → [Руководство по приложению для HarmonyOS](https://luker.cups.moe/guide/harmonyos)
 
-### Нативное приложение для десктопа — Windows и macOS
+### Нативное приложение для десктопа — Windows, macOS и Linux
 
-Бэкенд Luker также работает *внутри* упакованного приложения для десктопа. Скачайте установщик или архив для своей платформы со страницы Releases, откройте его и разрешите предупреждение безопасности при первом запуске — полноценный сервер вместе с интерфейсом заработает в нативном окне, без терминала, без ручной установки Node и без проброса портов.
+Бэкенд Luker также работает *внутри* упакованного приложения для десктопа. Скачайте установщик или архив для своей платформы со страницы Releases, откройте его и разрешите предупреждение безопасности при первом запуске в macOS и Windows — полноценный сервер вместе с интерфейсом заработает в нативном окне, без терминала, без ручной установки Node и без проброса портов.
 
 → [Руководство по приложению для десктопа](https://luker.cups.moe/guide/desktop)
 

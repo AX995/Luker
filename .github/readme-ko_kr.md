@@ -16,7 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
-[![Desktop app](https://img.shields.io/badge/download-Windows%20%26%20macOS-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
+[![Desktop app](https://img.shields.io/badge/download-Windows%2C%20macOS%20%26%20Linux-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
 
 </div>
 
@@ -93,9 +93,9 @@ Luker 백엔드는 HarmonyOS 앱 *안에서*도 실행됩니다. DevEco Studio�
 
 → [HarmonyOS 앱 가이드](https://luker.cups.moe/guide/harmonyos)
 
-### Native 데스크톱 앱 — Windows와 macOS
+### Native 데스크톱 앱 — Windows, macOS, Linux
 
-Luker 백엔드는 패키징된 데스크톱 앱 *안에서*도 실행됩니다. Releases에서 사용하는 플랫폼에 맞는 설치 파일이나 압축 파일을 내려받아 열고, 첫 실행 시 표시되는 보안 경고를 허용하면 완전한 서버와 UI가 네이티브 창에서 실행됩니다 — 터미널도, 수동 Node 설치도, 포트 포워딩도 필요 없습니다.
+Luker 백엔드는 패키징된 데스크톱 앱 *안에서*도 실행됩니다. Releases에서 사용하는 플랫폼에 맞는 설치 파일이나 압축 파일을 내려받아 열고, macOS와 Windows에서는 첫 실행 시 표시되는 보안 경고를 허용하면 완전한 서버와 UI가 네이티브 창에서 실행됩니다 — 터미널도, 수동 Node 설치도, 포트 포워딩도 필요 없습니다.
 
 → [데스크톱 앱 가이드](https://luker.cups.moe/guide/desktop)
 
