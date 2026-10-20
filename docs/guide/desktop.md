@@ -90,7 +90,7 @@ To remove everything as well, delete the data directory listed above after unins
 
 ## Closing the Window
 
-Closing the window keeps the app running: the server and any reply still being written carry on in the background, and opening the window again returns to the same page. Quit the app when you are done.
+On Windows and macOS, closing the window keeps the app running: the server and any reply still being written carry on in the background, and opening the window again returns to the same page. Quit the app when you are done.
 
 On Windows, closing the window moves the app to the notification area. Its menu opens the window, opens the data directory, and quits the app. Windows 11 files new notification-area icons into its overflow panel, so the icon may be there after the first close.
 
