@@ -86,6 +86,7 @@ import { setAndroidDebugRecordingEnabled, isAndroidDebugTrailAvailable, getAndro
 import { t } from './i18n.js';
 import { getBackgroundPath, isCustomBackgroundUrl } from './backgrounds.js';
 import { downloadCurrentSelfProfileReport, setSelfProfilerPreference, syncSelfProfilerEnabled } from './self-profiler.js';
+import { registerDebugMenuAction, setDebugMenuToggleState } from './debug-export.js';
 import { persona_description_positions as _persona_description_positions } from './personas.js';
 
 export const toastPositionClasses = [
@@ -2116,7 +2117,7 @@ export function applyPowerUserSettings() {
         // the checkbox before us — overwrite it so the UI matches the
         // native truth (and next saveSettingsDebounced writes the truth
         // back to settings.json instead of resurrecting the stale value).
-        $('#android_debug_recording').prop('checked', nativeDebugPref);
+        setDebugMenuToggleState('toggle-android-debug-recording', nativeDebugPref);
     }
     switchUiMode();
     applyFontScale('forced');
@@ -2349,12 +2350,12 @@ export async function loadPowerUserSettings(settings, data) {
     $('#context_derived').parent().find('i').toggleClass('toggleEnabled', !!power_user.context_derived);
     $('#context_size_derived').prop('checked', !!power_user.context_size_derived);
 
-    $('#frontend_debug_logging').prop('checked', power_user.frontend_debug_logging);
-    $('#android_debug_recording').prop('checked', !!power_user.android_debug_recording);
+    setDebugMenuToggleState('toggle-frontend-debug-log', power_user.frontend_debug_logging);
+    setDebugMenuToggleState('toggle-android-debug-recording', !!power_user.android_debug_recording);
     if (!isAndroidDebugTrailAvailable()) {
         document.documentElement.classList.add('luker-no-android');
     }
-    $('#self_profiling_enabled').prop('checked', power_user.self_profiling_enabled);
+    setDebugMenuToggleState('toggle-self-profiling', power_user.self_profiling_enabled);
     $('#console_log_prompts').prop('checked', power_user.console_log_prompts);
     $('#request_token_probabilities').prop('checked', power_user.request_token_probabilities);
     $('#show_group_chat_queue').prop('checked', power_user.show_group_chat_queue);
@@ -4342,14 +4343,16 @@ jQuery(() => {
         saveSettingsDebounced();
     });
 
-    $('#frontend_debug_logging').on('input', function () {
-        power_user.frontend_debug_logging = !!$(this).prop('checked');
+    registerDebugMenuAction('toggle-frontend-debug-log', () => {
+        power_user.frontend_debug_logging = !power_user.frontend_debug_logging;
+        setDebugMenuToggleState('toggle-frontend-debug-log', power_user.frontend_debug_logging);
         setFrontendConsoleDebugLoggingEnabled(power_user.frontend_debug_logging, { announce: true });
         saveSettingsDebounced();
     });
 
-    $('#android_debug_recording').on('input', function () {
-        power_user.android_debug_recording = !!$(this).prop('checked');
+    registerDebugMenuAction('toggle-android-debug-recording', () => {
+        power_user.android_debug_recording = !power_user.android_debug_recording;
+        setDebugMenuToggleState('toggle-android-debug-recording', power_user.android_debug_recording);
         const needsRestart = setAndroidDebugRecordingEnabled(power_user.android_debug_recording);
         if (needsRestart) {
             toastr.warning(
@@ -4361,8 +4364,9 @@ jQuery(() => {
         saveSettingsDebounced();
     });
 
-    $('#self_profiling_enabled').on('input', async function () {
-        power_user.self_profiling_enabled = !!$(this).prop('checked');
+    registerDebugMenuAction('toggle-self-profiling', async () => {
+        power_user.self_profiling_enabled = !power_user.self_profiling_enabled;
+        setDebugMenuToggleState('toggle-self-profiling', power_user.self_profiling_enabled);
         setSelfProfilerPreference(power_user.self_profiling_enabled);
         await syncSelfProfilerEnabled(power_user.self_profiling_enabled);
         saveSettingsDebounced();
@@ -4386,7 +4390,7 @@ jQuery(() => {
         }
     });
 
-    $('#download_self_profile_report').on('click', async function () {
+    registerDebugMenuAction('download-perf-report', async () => {
         try {
             await downloadCurrentSelfProfileReport();
             toastr.success(t`Performance profile downloaded.`, t`JS Self-Profiling`);

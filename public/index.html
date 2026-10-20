@@ -5165,9 +5165,20 @@
                                 <i class="fa-fw fa-solid fa-scroll"></i>
                                 <span data-i18n="Logs">Logs</span>
                             </div>
-                            <div id="debug-export-btn" class="margin0 menu_button_icon menu_button" title="Export a bundled debug report for troubleshooting." data-i18n="[title]Export a bundled debug report for troubleshooting.">
-                                <i class="fa-fw fa-solid fa-bug"></i>
-                                <span data-i18n="Export Debug Logs">Export Debug Logs</span>
+                            <div id="debug-menu" class="debug-menu">
+                                <div id="debug-export-btn" class="margin0 menu_button_icon menu_button" title="Diagnostics" data-i18n="[title]Diagnostics">
+                                    <i class="fa-fw fa-solid fa-bug"></i>
+                                    <span data-i18n="Diagnostics">Diagnostics</span>
+                                </div>
+                                <div id="debug-menu-list" class="debug-menu-list" role="menu" hidden>
+                                    <div class="debug-menu-item" role="menuitem" data-debug-action="export-bundle" data-i18n="Export Debug Logs">Export Debug Logs</div>
+                                    <div class="debug-menu-item luker-web-only" role="menuitem" data-debug-action="download-perf-report" data-i18n="Download Performance Profile">Download Performance Profile</div>
+                                    <div class="debug-menu-item debug-menu-toggle luker-web-only" role="menuitemcheckbox" aria-checked="false" data-debug-toggle="1" data-debug-action="toggle-self-profiling" data-i18n="Enable JS Self-Profiling (Experimental)">Enable JS Self-Profiling (Experimental)</div>
+                                    <div class="debug-menu-item debug-menu-toggle" role="menuitemcheckbox" aria-checked="false" data-debug-toggle="1" data-debug-action="toggle-frontend-debug-log" data-i18n="Frontend debug logs">Frontend debug logs</div>
+                                    <div class="debug-menu-item debug-menu-toggle luker-android-only" role="menuitemcheckbox" aria-checked="false" data-debug-toggle="1" data-debug-action="toggle-android-debug-recording" data-i18n="Android debug recording">Android debug recording</div>
+                                    <div class="debug-menu-item" role="menuitem" data-debug-action="capture-heap" data-i18n="Capture Memory Snapshot" hidden>Capture Memory Snapshot</div>
+                                    <div class="debug-menu-item" role="menuitem" data-debug-action="toggle-perf-recording" data-i18n="Start Performance Recording" hidden>Start Performance Recording</div>
+                                </div>
                             </div>
                             <div id="admin_button" class="margin0 menu_button_icon menu_button">
                                 <i class="fa-fw fa-solid fa-user-tie"></i>
@@ -5759,23 +5770,6 @@
                                     <input id="disable_group_trimming" type="checkbox" />
                                     <small data-i18n="Relax message trim in Groups">Relax message trim in Groups</small>
                                 </label>
-                                <label class="checkbox_label" for="frontend_debug_logging" title="Enable routine frontend console output and verbose plugin/core debug logs for troubleshooting." data-i18n="[title]Enable routine frontend console output and verbose plugin/core debug logs for troubleshooting.">
-                                    <input id="frontend_debug_logging" type="checkbox" />
-                                    <small data-i18n="Frontend debug logs">Frontend debug logs</small>
-                                </label>
-                                <label class="checkbox_label luker-android-only" for="android_debug_recording" title="Record additional Android-side diagnostics for crash reports. Off by default. Turn on and reproduce to get more details." data-i18n="[title]Record additional Android-side diagnostics for crash reports. Off by default. Turn on and reproduce to get more details.">
-                                    <input id="android_debug_recording" type="checkbox" />
-                                    <small data-i18n="Android debug recording">Android debug recording</small>
-                                    <i class="fa-solid fa-circle-info opacity50p" title="Takes effect after the next app restart. Also enables in-app WebView CDP diagnostics collection while on." data-i18n="[title]Takes effect after the next app restart. Also enables in-app WebView CDP diagnostics collection while on."></i>
-                                </label>
-                                <label class="checkbox_label" for="self_profiling_enabled" title="Start JS Self-Profiling as early as possible on page load and keep collecting samples until disabled." data-i18n="[title]Start JS Self-Profiling as early as possible on page load and keep collecting samples until disabled.">
-                                    <input id="self_profiling_enabled" type="checkbox" />
-                                    <small data-i18n="Enable JS Self-Profiling (Experimental)">Enable JS Self-Profiling (Experimental)</small>
-                                    <i class="fa-solid fa-circle-exclamation" title="JS Self-Profiling API support is limited to Chrome/Edge based browsers. Safari and Firefox are not supported." data-i18n="[title]JS Self-Profiling API support is limited to Chrome/Edge based browsers. Safari and Firefox are not supported."></i>
-                                </label>
-                                <div class="flex-container alignitemscenter" title="Download a profile snapshot now. Profiling continues automatically after download when enabled." data-i18n="[title]Download a profile snapshot now. Profiling continues automatically after download when enabled.">
-                                    <button id="download_self_profile_report" class="menu_button whitespacenowrap" type="button" data-i18n="Download Performance Profile">Download Performance Profile</button>
-                                </div>
                                 <label class="checkbox_label" for="console_log_prompts">
                                     <input id="console_log_prompts" type="checkbox" />
                                     <small data-i18n="Log prompts to console">Log prompts to console</small>

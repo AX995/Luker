@@ -6980,3 +6980,50 @@ body:not(.movingUI) .drawer-content.maximized {
 .cms-dialog-split .cms-split-segment-row { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 6px; padding: 4px 6px; background-color: var(--SmartThemeBlurTintColor); border-radius: 4px; }
 .cms-dialog-split .cms-split-segment-name { width: 100%; }
 .luker-no-android .luker-android-only { display: none !important; }
+
+/* Diagnostics dropdown anchored to the User Settings debug button. */
+.debug-menu { position: relative; display: inline-flex; }
+.debug-menu-list {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 3000;
+    display: block;
+    min-width: 220px;
+    padding: 4px 0;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background-color: var(--SmartThemeBlurTintColor);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.debug-menu-list[hidden] { display: none; }
+.debug-menu-item {
+    display: block;
+    padding: 6px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.debug-menu-item:hover { background-color: var(--white30a); }
+.debug-menu-item[hidden] { display: none; }
+.debug-menu-toggle::before { content: '\2713'; display: inline-block; width: 1.1em; visibility: hidden; }
+.debug-menu-toggle[aria-checked="true"]::before { visibility: visible; }
+
+/* Web-only diagnostics entries hide on the native clients, which capture
+   through their own bridge instead. */
+.luker-native-client .luker-web-only { display: none !important; }
+
+/* Persistent marker while a performance recording is running, so the session
+   is not forgotten while the settings drawer is closed. */
+#debug-recording-indicator {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 3001;
+    padding: 4px 10px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 999px;
+    background-color: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-size: calc(var(--mainFontSize) * 0.85);
+    pointer-events: none;
+}

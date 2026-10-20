@@ -32,6 +32,7 @@ export const PORT_RANGES = {
     generation:     { base: 8621, count: 6 },
     'server-plugins': { base: 8661, count: 4 },
     desktop:        { base: 8671, count: 6 },
+    diagnostics:    { base: 8681, count: 4 },
 };
 
 /**

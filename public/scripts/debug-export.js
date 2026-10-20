@@ -77,16 +77,87 @@ export async function downloadDebugBundle() {
     toastr.success(t`Debug logs have been exported.`, t`Export complete`);
 }
 
+const debugMenuActions = new Map();
+let debugMenuOutsideClickBound = false;
+
+function closeDebugMenu() {
+    const list = document.getElementById('debug-menu-list');
+    if (list) {
+        list.hidden = true;
+    }
+}
+
+function runDebugMenuAction(action) {
+    closeDebugMenu();
+    const handler = debugMenuActions.get(action);
+    if (handler) {
+        handler();
+    }
+}
+
 /**
- * Bind click behavior to the export button in User Settings.
+ * Bind a handler to one entry of the diagnostics menu. Entries are addressed
+ * by their `data-debug-action` value so the markup and the behavior can move
+ * independently.
+ * @param {string} action
+ * @param {() => void} handler
+ */
+export function registerDebugMenuAction(action, handler) {
+    debugMenuActions.set(action, handler);
+}
+
+/**
+ * Reflect a boolean setting on a menu entry that acts as a toggle.
+ * @param {string} action
+ * @param {boolean} checked
+ */
+export function setDebugMenuToggleState(action, checked) {
+    const item = document.querySelector(`#debug-menu-list [data-debug-action="${action}"]`);
+    if (item) {
+        item.setAttribute('aria-checked', checked ? 'true' : 'false');
+    }
+}
+
+/**
+ * Bind click behavior to the diagnostics button in User Settings.
  */
 export function initDebugExportButton() {
     const button = document.getElementById('debug-export-btn');
     if (!button) return;
+
+    registerDebugMenuAction('export-bundle', () => {
+        downloadDebugBundle();
+    });
+
+    const list = document.getElementById('debug-menu-list');
+    if (list && list.dataset.debugMenuBound !== 'true') {
+        list.dataset.debugMenuBound = 'true';
+        list.addEventListener('click', (event) => {
+            const item = event.target.closest?.('[data-debug-action]');
+            if (item) {
+                runDebugMenuAction(item.dataset.debugAction);
+            }
+        });
+    }
+
+    // Listen on the way down so a click anywhere else closes the menu before
+    // the element underneath reacts to it.
+    if (!debugMenuOutsideClickBound) {
+        debugMenuOutsideClickBound = true;
+        document.addEventListener('click', (event) => {
+            if (event.target.closest?.('#debug-export-btn') || event.target.closest?.('#debug-menu-list')) {
+                return;
+            }
+            closeDebugMenu();
+        }, true);
+    }
+
     if (button.dataset.debugExportBound === 'true') return;
 
     button.dataset.debugExportBound = 'true';
     button.addEventListener('click', () => {
-        downloadDebugBundle();
+        if (list) {
+            list.hidden = !list.hidden;
+        }
     });
 }

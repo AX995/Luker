@@ -292,6 +292,7 @@ import { initVarOpsPanelHandler } from './scripts/variable-op-log/panel.js';
 import { fetchMediaDeletionCandidates, deleteMediaFiles, promptMediaDeletion, notifyMediaDeleteResult } from './scripts/media-deletion-dialog.js';
 import { installFrontendLogCapture, setFrontendConsoleDebugLoggingEnabled } from './scripts/frontend-log-manager.js';
 import { initDebugExportButton } from './scripts/debug-export.js';
+import { initDebugMenuCapture } from './scripts/debug-menu-capture.js';
 import { initAndroidDebugTrail } from './scripts/luker-android-debug-trail.js';
 import { currentUser, getConfigValidationMessage, isAdmin, setUserControls } from './scripts/user.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup, fixToastrForDialogs } from './scripts/popup.js';
@@ -19970,6 +19971,13 @@ function restoreCharacterSearchVisibility() {
 
 // MARK: DOM Handlers Start
 jQuery(async function () {
+    // Wire the diagnostics menu before startup work begins. The preloader
+    // clears while firstLoadInit is still running, so binding it at the end of
+    // startup would leave the control dead for a window after the app looks
+    // ready.
+    initDebugExportButton();
+    initDebugMenuCapture();
+
     setTimeout(function () {
         $('#groupControlsToggle').trigger('click');
         $('#groupCurrentMemberListToggle .inline-drawer-icon').trigger('click');
