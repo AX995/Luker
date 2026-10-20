@@ -69,7 +69,7 @@ test('the workflow triggers on every branch, on tags and on a manual dispatch', 
 
 test('the platform jobs run on their own runners behind the repository gate', () => {
     const jobs = readWorkflow().jobs;
-    expect(Object.keys(jobs).sort()).toEqual(['build-macos', 'build-windows', 'publish', 'version']);
+    expect(Object.keys(jobs).sort()).toEqual(['build-linux', 'build-macos', 'build-windows', 'publish', 'version']);
     expect(jobs['build-macos']['runs-on']).toBe('macos-latest');
     expect(jobs['build-windows']['runs-on']).toBe('windows-latest');
     for (const job of Object.values(jobs)) {
@@ -84,14 +84,14 @@ test('only the desktop install lets lifecycle scripts run', () => {
     // The root .npmrc keeps `ignore-scripts=true`; overriding it there would make
     // CI compile native modules. Electron's postinstall is the one exception, and
     // it runs in the desktop package, once per platform job.
-    expect(withScripts.length).toBe(2);
+    expect(withScripts.length).toBe(3);
     for (const step of withScripts) {
         expect(step.run.trim()).toBe('npm install --ignore-scripts=false');
         expect(step['working-directory']).toBe('desktop-app');
     }
 
     const rootInstalls = installs.filter(step => step.run.trim() === 'npm ci');
-    expect(rootInstalls.length).toBe(2);
+    expect(rootInstalls.length).toBe(3);
     for (const step of rootInstalls) {
         expect(step['working-directory']).toBeUndefined();
     }
@@ -194,6 +194,26 @@ test('the upload globs cover every file the build emits', () => {
         }
     }
     expect(names).toHaveLength(8);
+
+    // The Linux targets spell the architecture their own way in the file name,
+    // so the x64 packages carry the distribution's token rather than the
+    // manifest's. Those tokens are electron-builder's, so they are written out
+    // here instead of being derived from the arch list above.
+    for (const [arch, ext] of [
+        ['x86_64', 'AppImage'],
+        ['amd64', 'deb'],
+        ['x86_64', 'rpm'],
+        ['arm64', 'AppImage'],
+        ['arm64', 'deb'],
+        ['aarch64', 'rpm'],
+    ]) {
+        names.push(desktop.artifactName
+            .replace('${version}', version)
+            .replace('${os}', 'linux')
+            .replace('${arch}', arch)
+            .replace('${ext}', ext));
+    }
+    expect(names).toHaveLength(14);
 
     const patterns = uploadSteps(readWorkflow()).map(step => String(step.with.path).trim());
     for (const name of names) {

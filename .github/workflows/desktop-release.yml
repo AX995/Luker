@@ -17,7 +17,7 @@ permissions:
 jobs:
   # The version an installer carries comes from the root manifest, so a tag that
   # disagrees with it would publish assets nobody can match to the release. The
-  # check runs before either platform starts building.
+  # check runs before any of the platform jobs starts building.
   version:
     if: github.repository == 'funnycups/Luker'
     runs-on: ubuntu-latest
@@ -142,6 +142,73 @@ jobs:
           path: desktop-app/dist/Luker-*-win-arm64.zip
           if-no-files-found: error
 
+  build-linux:
+    if: github.repository == 'funnycups/Luker'
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Install desktop dependencies
+        working-directory: desktop-app
+        run: npm install --ignore-scripts=false
+
+      - name: Build Linux artifacts
+        working-directory: desktop-app
+        run: node scripts/build-desktop.mjs linux
+
+      - name: Upload the Intel AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-linux-x64-appimage
+          path: desktop-app/dist/Luker-*-linux-x86_64.AppImage
+          if-no-files-found: error
+
+      - name: Upload the Intel deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-linux-x64-deb
+          path: desktop-app/dist/Luker-*-linux-amd64.deb
+          if-no-files-found: error
+
+      - name: Upload the Intel rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-linux-x64-rpm
+          path: desktop-app/dist/Luker-*-linux-x86_64.rpm
+          if-no-files-found: error
+
+      - name: Upload the Arm AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-linux-arm64-appimage
+          path: desktop-app/dist/Luker-*-linux-arm64.AppImage
+          if-no-files-found: error
+
+      - name: Upload the Arm deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-linux-arm64-deb
+          path: desktop-app/dist/Luker-*-linux-arm64.deb
+          if-no-files-found: error
+
+      - name: Upload the Arm rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: luker-desktop-linux-arm64-rpm
+          path: desktop-app/dist/Luker-*-linux-aarch64.rpm
+          if-no-files-found: error
+
   # One job publishes, so the release is created once and the generated notes
   # are written once. Every file arrives here through the artifacts above, which
   # is what keeps the globs off the other platform's output.
@@ -150,6 +217,7 @@ jobs:
     needs:
       - build-macos
       - build-windows
+      - build-linux
     runs-on: ubuntu-latest
     steps:
       - name: Download the built installers
