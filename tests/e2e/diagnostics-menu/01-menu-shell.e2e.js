@@ -73,8 +73,12 @@ test('every visible menu entry is hit-testable, not clipped by the scroll contai
     await expect(page.locator('#debug-menu-list')).toBeVisible();
 
     // boundingBox() ignores ancestor overflow clipping, so probe the real hit
-    // target at each entry's centre instead.
-    const unreachable = await page.evaluate(() => {
+    // target at each entry's centre instead. The settings drawer opens with an
+    // animation, so its scroll container is still short for a frame or two and
+    // every probe below the fold fails; poll until the layout settles instead
+    // of measuring mid-transition. A menu that stays clipped never settles into
+    // an empty list, so the assertion keeps its teeth.
+    const unreachable = () => page.evaluate(() => {
         const items = [...document.querySelectorAll('#debug-menu-list .debug-menu-item')]
             .filter(item => !item.hidden && item.offsetParent !== null);
 
@@ -87,5 +91,5 @@ test('every visible menu entry is hit-testable, not clipped by the scroll contai
             .map(item => item.dataset.debugAction);
     });
 
-    expect(unreachable).toEqual([]);
+    await expect.poll(unreachable).toEqual([]);
 });
