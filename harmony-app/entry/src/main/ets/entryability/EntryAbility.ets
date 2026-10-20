@@ -2,6 +2,7 @@ import window from '@ohos.window';
 import Want from '@ohos.app.ability.Want';
 import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import { common, UIAbility } from '@kit.AbilityKit';
+import { webview } from '@kit.ArkWeb';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BackendManager } from '../BackendManager';
 import { ImmersiveManager } from '../ImmersiveManager';
@@ -15,6 +16,13 @@ const DOMAIN: number = 0xE1EC;
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     KeepAliveManager.attach(this.context);
+    // The debug switch is process-wide and only covers renderer processes
+    // created after it is set, so it has to be armed before the page loads.
+    try {
+      webview.WebviewController.setWebDebuggingAccess(true);
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'setWebDebuggingAccess failed: %{public}s', JSON.stringify(e));
+    }
     let abnormalExit: boolean = false;
     try {
       abnormalExit = recordLastExit(this.context.filesDir, launchParam);

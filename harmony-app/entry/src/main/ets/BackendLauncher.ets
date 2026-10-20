@@ -1,8 +1,10 @@
 import fs from '@ohos.file.fs';
 import { common } from '@kit.AbilityKit';
+import { process } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { startBackend } from 'libnode_ctl.so';
 import { BackendManager } from './BackendManager';
+import { assembleEntryParams } from './BackendEntryParams';
 
 const TAG: string = 'luker.boot';
 const DOMAIN: number = 0xE1EC;
@@ -75,11 +77,7 @@ export function buildEntryParams(context: common.Context): string {
   const dataDir: string = pickDataDir(context);
   BackendManager.dataDir = dataDir;
   const scriptPath: string = resolveScriptPath(context.bundleCodeDir);
-  const entryParams: string = [
-    `dataDir=${dataDir}`,
-    `script=${scriptPath}`,
-    `port=${BACKEND_PORT}`
-  ].join('\n');
+  const entryParams: string = assembleEntryParams(dataDir, scriptPath, BACKEND_PORT, process.pid);
   BackendManager.entryParams = entryParams;
   return entryParams;
 }

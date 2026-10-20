@@ -138,6 +138,7 @@ import { router as usersPublicRouter } from './endpoints/users-public.js';
 import { router as syncRouter } from './endpoints/sync.js';
 import { syncInProgressMiddleware } from './sync/in-progress-gate.js';
 import { router as storageHealthRouter } from './endpoints/storage-health.js';
+import { createRendererCaptureRouter } from './endpoints/renderer-capture.js';
 import { init as statsInit, onExit as statsOnExit } from './endpoints/stats.js';
 import { checkForNewContent } from './endpoints/content-manager.js';
 import { init as settingsInit } from './endpoints/settings.js';
@@ -535,6 +536,10 @@ function redactDebugExportValue(value) {
     }
     return value;
 }
+
+// On-demand capture of the renderer behind the embedded webview. Mounted
+// after requireLoginMiddleware so the admin predicate can read request.user.
+app.use('/api/debug/capture', createRendererCaptureRouter({ isAdmin: isRequestAdmin }));
 
 app.post('/api/debug/export', (request, response) => {
     const handle = String(request?.user?.profile?.handle || '');

@@ -1,14 +1,15 @@
 /**
  * Client-only entries of the diagnostics menu.
  *
- * Both entries appear only where the native bridge can actually capture, so a
- * browser or an app build without the capture bridge never shows a dead
- * control. The bridge methods return as soon as the request is accepted; the
- * work runs on a native worker thread and reports back through
- * `window.LukerDebugCapture`.
+ * Both entries appear only where a capture can actually run, so a browser or
+ * an app build without a capture path never shows a dead control. Two backends
+ * exist: the Android bridge, whose methods return as soon as the request is
+ * accepted and report back through `window.LukerDebugCapture`, and the
+ * server-side endpoints that the HarmonyOS build drives over same-origin HTTP.
  */
 import { registerDebugMenuAction, setDebugMenuToggleState } from './debug-export.js';
 import { translate } from './i18n.js';
+import { downloadArtifact, readCaptureStatus, requestHeapSnapshot, requestTraceStart, requestTraceStop } from './renderer-capture-client.js';
 
 const HEAP_ACTION = 'capture-heap';
 const RECORDING_ACTION = 'toggle-perf-recording';
@@ -23,7 +24,7 @@ function getBridge() {
     if (typeof window === 'undefined') {
         return null;
     }
-    return window.LukerAndroid ?? window.LukerHarmony ?? null;
+    return window.LukerAndroid ?? null;
 }
 
 function getItem(action) {
@@ -128,6 +129,52 @@ function togglePerformanceTrace() {
     }
 }
 
+function captureHeapSnapshotOnServer() {
+    if (heapCaptureInFlight) {
+        toastr.warning(translate('A capture is already running.'), translate('Diagnostics'));
+        return;
+    }
+
+    heapCaptureInFlight = true;
+    requestHeapSnapshot()
+        .then((result) => {
+            downloadArtifact(result.name);
+            toastr.success(translate('The capture is ready.'), translate('Diagnostics'));
+        })
+        .catch((error) => {
+            console.error('[debug-menu-capture] heap capture failed', error);
+            toastr.error(error.message, translate('Diagnostics'));
+        })
+        .finally(() => {
+            heapCaptureInFlight = false;
+        });
+}
+
+function togglePerformanceTraceOnServer() {
+    // The server owns the session, so read the current state instead of
+    // trusting the label the page last rendered.
+    readCaptureStatus()
+        .then((status) => {
+            const recording = !!status.recording;
+            const request = recording ? requestTraceStop() : requestTraceStart();
+            return request.then((result) => ({ recording, result }));
+        })
+        .then(({ recording, result }) => {
+            renderRecordingState(!recording);
+            if (recording) {
+                downloadArtifact(result.name);
+            }
+            toastr.success(
+                recording ? translate('Performance recording stopped.') : translate('Performance recording started.'),
+                translate('Diagnostics'),
+            );
+        })
+        .catch((error) => {
+            console.error('[debug-menu-capture] trace toggle failed', error);
+            toastr.error(error.message, translate('Diagnostics'));
+        });
+}
+
 function onCaptureReady(kind) {
     if (kind === 'heap') {
         heapCaptureInFlight = false;
@@ -142,20 +189,7 @@ function onCaptureFailed(kind, message) {
     toastr.error(message || translate('The capture failed.'), translate('Diagnostics'));
 }
 
-/**
- * Reveal and wire whichever capture entries the native bridge supports.
- */
-export function initDebugMenuCapture() {
-    const bridge = getBridge();
-
-    if (bridge) {
-        document.documentElement.classList.add('luker-native-client');
-    }
-
-    if (!bridge) {
-        return;
-    }
-
+function initBridgeCapture(bridge) {
     if (typeof bridge.captureHeapSnapshot === 'function') {
         setItemVisible(HEAP_ACTION, true);
         registerDebugMenuAction(HEAP_ACTION, captureHeapSnapshot);
@@ -176,4 +210,39 @@ export function initDebugMenuCapture() {
     }
 
     window.LukerDebugCapture = { onCaptureReady, onCaptureFailed };
+}
+
+function initServerCapture() {
+    readCaptureStatus()
+        .then((status) => {
+            if (!status.available) {
+                console.debug('[debug-menu-capture] renderer capture unavailable', status.reason);
+                return;
+            }
+
+            document.documentElement.classList.add('luker-native-client');
+            setItemVisible(HEAP_ACTION, true);
+            registerDebugMenuAction(HEAP_ACTION, captureHeapSnapshotOnServer);
+            setItemVisible(RECORDING_ACTION, true);
+            registerDebugMenuAction(RECORDING_ACTION, togglePerformanceTraceOnServer);
+            renderRecordingState(!!status.recording);
+        })
+        .catch((error) => {
+            console.error('[debug-menu-capture] renderer capture probe failed', error);
+        });
+}
+
+/**
+ * Reveal and wire whichever capture entries this build supports.
+ */
+export function initDebugMenuCapture() {
+    const bridge = getBridge();
+
+    if (bridge) {
+        document.documentElement.classList.add('luker-native-client');
+        initBridgeCapture(bridge);
+        return;
+    }
+
+    initServerCapture();
 }
