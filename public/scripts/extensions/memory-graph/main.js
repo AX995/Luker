@@ -2926,33 +2926,6 @@ function getCompressionColumnNames(spec) {
     return deduped;
 }
 
-function normalizeWorldInfoResolverMessages(messages = []) {
-    if (!Array.isArray(messages)) {
-        return [];
-    }
-
-    return messages.map((message) => {
-        if (!message || typeof message !== 'object') {
-            return message;
-        }
-        const next = { ...message };
-        const rawRole = String(next.role || '').trim().toLowerCase();
-        if (rawRole === 'system' || rawRole === 'user' || rawRole === 'assistant') {
-            next.role = rawRole;
-        } else if (next.is_system) {
-            next.role = 'system';
-        } else if (next.is_user) {
-            next.role = 'user';
-        } else {
-            next.role = 'assistant';
-        }
-        if (next.content === undefined && Object.hasOwn(next, 'mes')) {
-            next.content = String(next.mes ?? '');
-        }
-        return next;
-    });
-}
-
 function rewriteDepthWorldInfoToAfter(payload = {}) {
     if (!payload || typeof payload !== 'object') {
         return payload;
@@ -3028,12 +3001,11 @@ async function resolveMemoryGraphWorldInfo(context, settings, {
     if (!forceWorldInfoResimulate && hasEffectiveRuntimeWorldInfo(runtimeWorldInfo)) {
         return normalizeRuntimeWorldInfo(runtimeWorldInfo);
     }
-    const resolverMessages = normalizeWorldInfoResolverMessages(worldInfoMessages);
-    if (resolverMessages.length === 0 || typeof context?.resolveWorldInfoForMessages !== 'function') {
+    if (!Array.isArray(worldInfoMessages) || worldInfoMessages.length === 0 || typeof context?.resolveWorldInfoForMessages !== 'function') {
         return {};
     }
     throwIfRecallRunInvalid(recallRunToken, abortSignal, 'Memory recall aborted.');
-    const resolved = await context.resolveWorldInfoForMessages(resolverMessages, {
+    const resolved = await context.resolveWorldInfoForMessages(worldInfoMessages, {
         type: String(worldInfoType || 'quiet'),
         fallbackToCurrentChat: false,
         postActivationHook: rewriteDepthWorldInfoToAfter,
