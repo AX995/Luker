@@ -102,7 +102,7 @@ import {
     getCharacterPersonality,
     getCharacterScenario,
     getCharacterTalkativeness,
-    cloneJsonValue,
+    cloneAsJsonWire,
     invalidateChatWriteSnapshot,
     isChatTransitionInProgress,
     maybeApplyCharacterBoundPreset,
@@ -727,7 +727,7 @@ async function saveGroupChatInternal(groupId, shouldSaveGroup, force = false, re
     // no chance of matching. Retry callers already pass a cloned snapshot through saveContext.
     const messagesSnapshot = messagesSnapshotFromContext
         ? liveMessagesSnapshot
-        : (cloneJsonValue(liveMessagesSnapshot) ?? liveMessagesSnapshot);
+        : (cloneAsJsonWire(liveMessagesSnapshot) ?? liveMessagesSnapshot);
     /** @type {ChatHeader} */
     const chatHeader = {
         chat_metadata: { ...metadataSnapshot },

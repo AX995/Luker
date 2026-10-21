@@ -1,6 +1,6 @@
 import { Popper } from '../lib.js';
 
-import { eventSource, event_types, saveSettings, saveSettingsDebounced, getRequestHeaders, animation_duration, EXTENSIONS_CLIENT_VERSION, buildObjectPatchOperationsAsync, buildObjectPatchOperations, cloneJsonValue } from '../script.js';
+import { eventSource, event_types, saveSettings, saveSettingsDebounced, getRequestHeaders, animation_duration, EXTENSIONS_CLIENT_VERSION, buildObjectPatchOperationsAsync, buildObjectPatchOperations, cloneAsJsonWire } from '../script.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup } from './popup.js';
 import { renderTemplate, renderTemplateAsync } from './templates.js';
 import { delay, deleteValueByPath, equalsIgnoreCaseAndAccents, escapeHtml, isSubsetOf, sanitizeSelector, setValueByPath, versionCompare } from './utils.js';
@@ -2462,10 +2462,10 @@ export async function updateCharacterState(avatar, namespace, updater, options =
         }
         const currentRaw = readResult.state;
         const currentState = (currentRaw != null && typeof currentRaw === 'object' && !Array.isArray(currentRaw))
-            ? cloneJsonValue(currentRaw) : {};
+            ? cloneAsJsonWire(currentRaw) : {};
         let nextRaw;
         try {
-            nextRaw = await updater(cloneJsonValue(currentState), {
+            nextRaw = await updater(cloneAsJsonWire(currentState), {
                 attempt, avatar: safeAvatar, namespace: safeNamespace,
             });
         } catch (reducerError) {
@@ -2481,7 +2481,7 @@ export async function updateCharacterState(avatar, namespace, updater, options =
             return makeStateError(STATE_ERROR_REASONS.VALIDATION_ARGS,
                 'updater must return a plain object (or null/undefined to skip)');
         }
-        const nextState = cloneJsonValue(nextRaw);
+        const nextState = cloneAsJsonWire(nextRaw);
         const operations = options?.asyncDiff === false
             ? buildObjectPatchOperations(currentState, nextState, { maxOperations })
             : await buildObjectPatchOperationsAsync(currentState, nextState, { maxOperations });

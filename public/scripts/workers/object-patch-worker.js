@@ -8,32 +8,8 @@ function isPlainObject(value) {
     return prototype === Object.prototype || prototype === null;
 }
 
-function cloneJsonValue(value) {
-    if (typeof structuredClone === 'function') {
-        try {
-            return structuredClone(value);
-        } catch {
-            // Fall back to JSON-safe cloning for values that cannot be structured-cloned.
-        }
-    }
-
-    const seen = new WeakSet();
-    const serialized = JSON.stringify(value, (_, nextValue) => {
-        if (typeof nextValue === 'function' || typeof nextValue === 'symbol') {
-            return undefined;
-        }
-        if (typeof nextValue === 'bigint') {
-            return String(nextValue);
-        }
-        if (nextValue && typeof nextValue === 'object') {
-            if (seen.has(nextValue)) {
-                return undefined;
-            }
-            seen.add(nextValue);
-        }
-        return nextValue;
-    });
-
+function cloneAsJsonWire(value) {
+    const serialized = JSON.stringify(value);
     return serialized === undefined ? undefined : JSON.parse(serialized);
 }
 
@@ -107,7 +83,7 @@ function attachObjectPatchTests(previousState, operations) {
                 guardedOperations.push({
                     op: 'test',
                     path,
-                    value: cloneJsonValue(resolved.value),
+                    value: cloneAsJsonWire(resolved.value),
                 });
                 lastTestedPath = path;
             }
@@ -142,7 +118,7 @@ function buildObjectPatchOperations(previousState, nextState, options = {}) {
         : (Array.isArray(nextState) ? [] : {});
     const operations = compareJsonPatch(previous, nextState);
     if (operations.length > maxOperations) {
-        return [{ op: 'replace', path: '', value: cloneJsonValue(nextState) }];
+        return [{ op: 'replace', path: '', value: cloneAsJsonWire(nextState) }];
     }
 
     return attachTests ? attachObjectPatchTests(previous, operations) : operations;

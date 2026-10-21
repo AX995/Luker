@@ -1715,30 +1715,8 @@ function isPlainObject(value) {
     return prototype === Object.prototype || prototype === null;
 }
 
-function cloneJsonValue(value) {
-    if (typeof structuredClone === 'function') {
-        try {
-            return structuredClone(value);
-        } catch {
-            // Fallback below.
-        }
-    }
-    const seen = new WeakSet();
-    const serialized = JSON.stringify(value, (_, nextValue) => {
-        if (typeof nextValue === 'function' || typeof nextValue === 'symbol') {
-            return undefined;
-        }
-        if (typeof nextValue === 'bigint') {
-            return String(nextValue);
-        }
-        if (nextValue && typeof nextValue === 'object') {
-            if (seen.has(nextValue)) {
-                return undefined;
-            }
-            seen.add(nextValue);
-        }
-        return nextValue;
-    });
+function cloneAsJsonWire(value) {
+    const serialized = JSON.stringify(value);
     return serialized === undefined ? undefined : JSON.parse(serialized);
 }
 
@@ -1751,7 +1729,7 @@ function rememberWorldInfoSnapshot(name, data) {
         worldInfoSnapshotCache.delete(key);
         return;
     }
-    const snapshot = cloneJsonValue(data);
+    const snapshot = cloneAsJsonWire(data);
     if (isPlainObject(snapshot)) {
         worldInfoSnapshotCache.set(key, snapshot);
     } else {
@@ -1765,7 +1743,7 @@ function getWorldInfoSnapshot(name) {
         return null;
     }
     const snapshot = worldInfoSnapshotCache.get(key);
-    return isPlainObject(snapshot) ? cloneJsonValue(snapshot) : null;
+    return isPlainObject(snapshot) ? cloneAsJsonWire(snapshot) : null;
 }
 
 function getWorldInfoRequestGeneration(name) {
@@ -8180,7 +8158,7 @@ export function createWorldInfoEntry(_name, data) {
 async function saveWorldInfoInternal(name, data, options = {}) {
     let saved = false;
     invalidateWorldInfoRequestCache([name]);
-    const payload = cloneJsonValue(data);
+    const payload = cloneAsJsonWire(data);
     const previousSnapshot = getWorldInfoSnapshot(name);
     const canPatch = isPlainObject(previousSnapshot) && isPlainObject(payload);
     const normalizedOptions = normalizeWorldInfoSaveOptions(options);

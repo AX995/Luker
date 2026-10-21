@@ -340,6 +340,7 @@ import { initDomHandlers } from './scripts/dom-handlers.js';
 import { SimpleMutex } from './scripts/util/SimpleMutex.js';
 import { applyPatch as applyJsonPatch, compare as compareJsonPatch } from './scripts/util/fast-json-patch.js';
 import { shouldUseSettingsPatch } from './scripts/util/settings-patch-threshold.js';
+import { cloneAsJsonWire } from './scripts/util/json-clone.js';
 import { AudioPlayer } from './scripts/audio-player.js';
 import { MacroEnvBuilder } from './scripts/macros/engine/MacroEnvBuilder.js';
 import { MessageFormatter } from './scripts/message-formatter.js';
@@ -12057,7 +12058,7 @@ async function renamePastChats(oldAvatar, newAvatar, newName) {
                 continue;
             }
 
-            const previousMessages = currentChat.slice(1).map(message => cloneJsonValue(message));
+            const previousMessages = currentChat.slice(1).map(message => cloneAsJsonWire(message));
             for (let lineIndex = 1; lineIndex < currentChat.length; lineIndex++) {
                 const message = currentChat[lineIndex];
                 if (message?.is_user || message?.is_system || message?.extra?.type == system_message_types.NARRATOR) {
@@ -12273,71 +12274,10 @@ function isPlainObject(value) {
     return prototype === Object.prototype || prototype === null;
 }
 
-export function cloneJsonValue(value) {
-    if (typeof structuredClone === 'function') {
-        try {
-            return structuredClone(value);
-        } catch {
-            // Fall back to JSON-safe cloning for values that cannot be structured-cloned
-            // (e.g. functions attached by extensions).
-        }
-    }
-    const seen = new WeakSet();
-    const serialized = JSON.stringify(value, (_, nextValue) => {
-        if (typeof nextValue === 'function' || typeof nextValue === 'symbol') {
-            return undefined;
-        }
-        if (typeof nextValue === 'bigint') {
-            return String(nextValue);
-        }
-        if (nextValue && typeof nextValue === 'object') {
-            if (seen.has(nextValue)) {
-                return undefined;
-            }
-            seen.add(nextValue);
-        }
-        return nextValue;
-    });
-    return serialized === undefined ? undefined : JSON.parse(serialized);
-}
-
-/**
- * Clones a value through a JSON round-trip so the result matches what the
- * server would see if we fetch()'d this payload right now.
- *
- * Why this exists separately from cloneJsonValue: structuredClone preserves
- * sparse-array slots and `undefined` fields, but JSON.stringify collapses both
- * to `null` (sparse slot) or removes them (undefined object field). Server
- * never sees the structured form — it only sees the wire bytes. So if FE
- * snapshot is built with structuredClone, it captures a JS-only shape that
- * server's stored copy cannot match, and the next JSON Patch test against /N
- * fails because snapshot.swipe_info[0] is {empty slot} while server holds
- * null.
- *
- * Use this for any state that will be compared against server-stored form:
- * the chat-write snapshot caches and patch-op build pipeline. Display /
- * mutation code paths should keep using cloneJsonValue.
- */
-export function cloneAsJsonWire(value) {
-    try {
-        const serialized = JSON.stringify(value);
-        return serialized === undefined ? undefined : JSON.parse(serialized);
-    } catch {
-        // Exotic values (functions, symbols, bigints, circular refs) — fall back
-        // to the safer serializer that strips those, then JSON-normalize again
-        // so the output is still in wire form (sparse → null, undefined dropped).
-        const safe = cloneJsonValue(value);
-        try {
-            const serialized = JSON.stringify(safe);
-            return serialized === undefined ? undefined : JSON.parse(serialized);
-        } catch {
-            return safe;
-        }
-    }
-}
+export { cloneAsJsonWire };
 
 function normalizeJsonObject(value) {
-    const normalized = cloneJsonValue(value);
+    const normalized = cloneAsJsonWire(value);
     return isPlainObject(normalized) ? normalized : {};
 }
 
@@ -12375,7 +12315,7 @@ export function buildObjectPatchOperations(previousState, nextState, options = {
     const previous = isPlainObject(previousState) ? previousState : {};
     const operations = compareJsonPatch(previous, next);
     if (operations.length > maxOperations) {
-        return [{ op: 'replace', path: '', value: cloneJsonValue(next) }];
+        return [{ op: 'replace', path: '', value: cloneAsJsonWire(next) }];
     }
     return attachObjectPatchTests(previous, operations);
 }
@@ -12540,7 +12480,7 @@ function attachObjectPatchTests(previousState, operations) {
         return sourceOperations;
     }
 
-    let workingState = cloneJsonValue(previousState);
+    let workingState = cloneAsJsonWire(previousState);
     let lastTestedPath = null;
     /** @type {object[]} */
     const guardedOperations = [];
@@ -12565,7 +12505,7 @@ function attachObjectPatchTests(previousState, operations) {
                 guardedOperations.push({
                     op: 'test',
                     path,
-                    value: cloneJsonValue(resolved.value),
+                    value: cloneAsJsonWire(resolved.value),
                 });
                 lastTestedPath = path;
             }
@@ -12601,7 +12541,7 @@ function extractTopMessageIndexFromPath(path) {
 }
 
 function attachChatMessagePatchTests(previousMessages, operations) {
-    const baseMessages = Array.isArray(previousMessages) ? cloneJsonValue(previousMessages) : null;
+    const baseMessages = Array.isArray(previousMessages) ? cloneAsJsonWire(previousMessages) : null;
     const sourceOperations = Array.isArray(operations)
         ? operations.filter(op => op && typeof op === 'object')
         : [];
@@ -12688,7 +12628,7 @@ export async function buildChatMessagePatchOperations(previousMessages, nextMess
 function normalizeChatMetadataForPatch(metadata) {
     // `integrity` is a concurrency token, not business metadata.
     // Excluding it avoids stale-snapshot JSON-Patch test failures on /integrity.
-    const source = isPlainObject(metadata) ? cloneJsonValue(metadata) : {};
+    const source = isPlainObject(metadata) ? cloneAsJsonWire(metadata) : {};
     delete source.integrity;
     return source;
 }
@@ -12714,7 +12654,7 @@ function rememberChatMetadataSnapshot(target = resolveChatStateTarget(), metadat
     if (!key) {
         return;
     }
-    chatMetadataSnapshotCache.set(key, cloneJsonValue(isPlainObject(metadata) ? metadata : {}));
+    chatMetadataSnapshotCache.set(key, cloneAsJsonWire(isPlainObject(metadata) ? metadata : {}));
 }
 
 export function seedChatMetadataSnapshot(target = null, metadata = chat_metadata) {
@@ -12729,7 +12669,7 @@ export function getChatMetadataSnapshot(target = null) {
         return null;
     }
     const snapshot = chatMetadataSnapshotCache.get(key);
-    return isPlainObject(snapshot) ? cloneJsonValue(snapshot) : null;
+    return isPlainObject(snapshot) ? cloneAsJsonWire(snapshot) : null;
 }
 
 function rememberChatMessageSnapshot(target = resolveChatStateTarget(), messages = chat) {
@@ -12763,7 +12703,7 @@ export function getChatMessageSnapshot(target = null) {
         return null;
     }
     const snapshot = chatMessageSnapshotCache.get(key);
-    return Array.isArray(snapshot) ? cloneJsonValue(snapshot) : null;
+    return Array.isArray(snapshot) ? cloneAsJsonWire(snapshot) : null;
 }
 
 let chatWriteQueue = Promise.resolve();
@@ -12935,10 +12875,10 @@ async function fetchCurrentServerChatSnapshot(target = resolveChatStateTarget())
 
         const [header, ...rawMessages] = payload;
         const metadata = isPlainObject(header?.chat_metadata)
-            ? cloneJsonValue(header.chat_metadata)
+            ? cloneAsJsonWire(header.chat_metadata)
             : {};
         const messages = rawMessages
-            .map(message => cloneJsonValue(message))
+            .map(message => cloneAsJsonWire(message))
             .filter(message => message && typeof message === 'object');
 
         messages.forEach(ensureMessageMediaIsArray);
@@ -13302,9 +13242,9 @@ export async function updateChatState(namespace, updater, options = {}) {
             const currentState = normalizeJsonObject(currentStateRaw);
             let nextStateRaw;
             try {
-                nextStateRaw = await updater(cloneJsonValue(currentState), {
+                nextStateRaw = await updater(cloneAsJsonWire(currentState), {
                     attempt,
-                    target: cloneJsonValue(target),
+                    target: cloneAsJsonWire(target),
                     namespace: stateNamespace,
                 });
             } catch (reducerError) {
@@ -13632,9 +13572,9 @@ export async function updatePresetState(namespace, updater, options = {}) {
             const currentState = normalizeJsonObject(currentStateRaw);
             let nextStateRaw;
             try {
-                nextStateRaw = await updater(cloneJsonValue(currentState), {
+                nextStateRaw = await updater(cloneAsJsonWire(currentState), {
                     attempt,
-                    target: cloneJsonValue(target),
+                    target: cloneAsJsonWire(target),
                     namespace: stateNamespace,
                 });
             } catch (reducerError) {
@@ -14391,7 +14331,7 @@ async function appendChatMessagesInternal(messages, retryCount = 0) {
 }
 
 export async function appendChatMessages(messages, retryCount = 0) {
-    const queuedMessages = cloneJsonValue(messages) ?? messages;
+    const queuedMessages = cloneAsJsonWire(messages) ?? messages;
     return await runSerializedChatWrite(() => appendChatMessagesInternal(queuedMessages, retryCount));
 }
 
@@ -14550,7 +14490,7 @@ async function patchChatMessagesInternal(operations, retryCount = 0) {
 }
 
 export async function patchChatMessages(operations, retryCount = 0) {
-    const queuedOperations = cloneJsonValue(operations) ?? operations;
+    const queuedOperations = cloneAsJsonWire(operations) ?? operations;
     return await runSerializedChatWrite(() => patchChatMessagesInternal(queuedOperations, retryCount));
 }
 
@@ -14561,10 +14501,10 @@ function buildActiveChatSaveContext({ withMetadata = undefined, chatName = undef
     }
 
     const metadataPatch = (withMetadata && typeof withMetadata === 'object')
-        ? (cloneJsonValue(withMetadata) ?? withMetadata)
+        ? (cloneAsJsonWire(withMetadata) ?? withMetadata)
         : {};
     const baseMetadata = isPlainObject(chat_metadata)
-        ? (cloneJsonValue(chat_metadata) ?? chat_metadata)
+        ? (cloneAsJsonWire(chat_metadata) ?? chat_metadata)
         : {};
     const metadataSnapshot = {
         ...baseMetadata,
@@ -14576,7 +14516,7 @@ function buildActiveChatSaveContext({ withMetadata = undefined, chatName = undef
         ? Number(mesId) + 1
         : chat.length;
     const messagesSnapshot = withMessages
-        ? (cloneJsonValue(chat.slice(0, endIndex)) ?? chat.slice(0, endIndex))
+        ? (cloneAsJsonWire(chat.slice(0, endIndex)) ?? chat.slice(0, endIndex))
         : null;
 
     if (activeTarget.is_group) {
@@ -14740,7 +14680,7 @@ async function saveChatMetadataInternal(withMetadata = undefined, retryCount = 0
                 }
                 return await saveChatMetadataInternal(withMetadata, retryCount + 1, {
                     ...(saveContext ?? {}),
-                    metadataSnapshot: cloneJsonValue(metadata) ?? metadata,
+                    metadataSnapshot: cloneAsJsonWire(metadata) ?? metadata,
                 });
             }
         } else {
@@ -14780,7 +14720,7 @@ async function saveChatMetadataInternal(withMetadata = undefined, retryCount = 0
                 }
                 return await saveChatMetadataInternal(withMetadata, retryCount + 1, {
                     ...(saveContext ?? {}),
-                    metadataSnapshot: cloneJsonValue(metadata) ?? metadata,
+                    metadataSnapshot: cloneAsJsonWire(metadata) ?? metadata,
                 });
             }
         }
@@ -14793,7 +14733,7 @@ async function saveChatMetadataInternal(withMetadata = undefined, retryCount = 0
 }
 
 export async function saveChatMetadata(withMetadata = undefined, retryCount = 0) {
-    const metadataPatch = cloneJsonValue(withMetadata) ?? withMetadata;
+    const metadataPatch = cloneAsJsonWire(withMetadata) ?? withMetadata;
     return await runSerializedChatWrite(() => saveChatMetadataInternal(metadataPatch, retryCount));
 }
 
@@ -14893,7 +14833,7 @@ async function saveChatInternal({ chatName, withMetadata, mesId, force = false, 
     // the next write that BE has no chance of matching. Retries already pass a cloned snapshot.
     const trimmedChat = stagedFromContext
         ? liveTrimmedChat
-        : (cloneJsonValue(liveTrimmedChat) ?? liveTrimmedChat);
+        : (cloneAsJsonWire(liveTrimmedChat) ?? liveTrimmedChat);
 
     /** @type {ChatHeader} */
     const chatHeader = {
@@ -14961,12 +14901,12 @@ async function saveChatInternal({ chatName, withMetadata, mesId, force = false, 
                         if (conflictResolution === 'integrity' || conflictResolution === 'snapshot') {
                             await refreshChatWriteSnapshotsFromServer(writeTarget);
                         }
-                        await saveChatInternal({ chatName, withMetadata, mesId, force, _retryAttempt: _retryAttempt + 1, _context: { ...(saveContext ?? {}), metadataSnapshot: cloneJsonValue(metadata) ?? metadata, messagesSnapshot: cloneJsonValue(trimmedChat) ?? trimmedChat } });
+                        await saveChatInternal({ chatName, withMetadata, mesId, force, _retryAttempt: _retryAttempt + 1, _context: { ...(saveContext ?? {}), metadataSnapshot: cloneAsJsonWire(metadata) ?? metadata, messagesSnapshot: cloneAsJsonWire(trimmedChat) ?? trimmedChat } });
                         return;
                     }
                 }
             } else {
-                const metadataSaved = await saveChatMetadataInternal(withMetadata, _retryAttempt, { ...(saveContext ?? {}), metadataSnapshot: cloneJsonValue(metadata) ?? metadata, messagesSnapshot: cloneJsonValue(trimmedChat) ?? trimmedChat });
+                const metadataSaved = await saveChatMetadataInternal(withMetadata, _retryAttempt, { ...(saveContext ?? {}), metadataSnapshot: cloneAsJsonWire(metadata) ?? metadata, messagesSnapshot: cloneAsJsonWire(trimmedChat) ?? trimmedChat });
                 if (metadataSaved) {
                     rememberChatMessageSnapshot(writeTarget, trimmedChat);
                     return;
@@ -15008,7 +14948,7 @@ async function saveChatInternal({ chatName, withMetadata, mesId, force = false, 
                 if (conflictResolution === 'integrity' || conflictResolution === 'snapshot') {
                     await refreshChatWriteSnapshotsFromServer(writeTarget);
                 }
-                await saveChatInternal({ chatName, withMetadata, mesId, force, _retryAttempt: _retryAttempt + 1, _context: { ...(saveContext ?? {}), metadataSnapshot: cloneJsonValue(metadata) ?? metadata, messagesSnapshot: cloneJsonValue(trimmedChat) ?? trimmedChat } });
+                await saveChatInternal({ chatName, withMetadata, mesId, force, _retryAttempt: _retryAttempt + 1, _context: { ...(saveContext ?? {}), metadataSnapshot: cloneAsJsonWire(metadata) ?? metadata, messagesSnapshot: cloneAsJsonWire(trimmedChat) ?? trimmedChat } });
                 return;
             }
         }
@@ -15040,7 +14980,7 @@ async function saveChatInternal({ chatName, withMetadata, mesId, force = false, 
 }
 
 export async function saveChat() {
-    const args = cloneJsonValue(Array.from(arguments)) ?? Array.from(arguments);
+    const args = cloneAsJsonWire(Array.from(arguments)) ?? Array.from(arguments);
     return await runSerializedChatWrite(() => saveChatInternal(...args));
 }
 
@@ -16187,9 +16127,8 @@ async function saveSettingsInternal(loopCounter = 0, options = {}) {
         TempResponseLength.restore(null);
     }
 
-    const payload = buildSettingsPayload();
-
     try {
+        const payload = buildSettingsPayload();
         let saved = false;
         const previousSnapshot = getSettingsSnapshot();
 

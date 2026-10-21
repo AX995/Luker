@@ -53,7 +53,6 @@ export const SCRIPT_EXPORT_NAMES = Object.freeze([
   "clearChat",
   "clearItemizedPrompts",
   "cloneAsJsonWire",
-  "cloneJsonValue",
   "closeCurrentChat",
   "closeMessageEditor",
   "comment_avatar",
