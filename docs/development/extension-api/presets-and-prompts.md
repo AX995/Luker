@@ -199,6 +199,10 @@ The `hint` field is English, no longer than 120 characters, and contains actiona
 
 ## Prompt and World Info Assembly
 
+For a normal plugin LLM request, use [`generateTask`](/development/extension-api/generation). It performs profile resolution, World Info activation, prompt assembly, dispatch, and response normalization in one call.
+
+The APIs below are the lower-level primitives. Use them when you need to inspect or transform the assembled prompt, apply a `postActivationHook`, or dispatch through a transport that `generateTask` does not support.
+
 ### buildPresetAwarePromptMessages
 
 ```ts
@@ -277,7 +281,10 @@ The `postActivationHook` parameter of `resolveWorldInfoForMessages` allows you t
 
 ```ts
 resolveWorldInfoForMessages(
-  messages: Array<{ role: string, content: string }>,
+  messages: Array<
+    | { role: string, content: string }
+    | { mes: string, is_user?: boolean, is_system?: boolean, name?: string }
+  >,
   options?: {
     type?: string,
     fallbackToCurrentChat?: boolean,
@@ -292,7 +299,7 @@ Performs a World Info activation scan against the specified messages and returns
 
 | Parameter | Description |
 |------|------|
-| `messages` | Message list used to trigger World Info keyword matching |
+| `messages` | Message list used to trigger World Info keyword matching. Accepts either `{ role, content }` or a SillyTavern chat record `{ mes, is_user, is_system, name }` |
 | `options.type` | Activation type (e.g., `'quiet'` for silent scan that does not affect the main conversation) |
 | `options.fallbackToCurrentChat` | Whether to fall back to current chat messages if `messages` is empty |
 | `options.postActivationHook` | Post-activation hook function that receives the full World Info payload; can modify entry content, positions, depth, or add/remove entries |
@@ -306,9 +313,25 @@ The returned object contains fields such as `worldInfoBeforeEntries`, `worldInfo
 - Simulate World Info activation without affecting the main conversation
 :::
 
-### Recommended Independent LLM Call Pattern
+### Independent LLM Calls
 
-When a plugin needs to make independent LLM calls (e.g., AI-assisted features in a popup), the following pattern is recommended:
+For a plugin popup or background task, call `generateTask` with the task messages and choose how World Info should be activated:
+
+```js
+const context = Luker.getContext();
+
+const result = await context.generateTask({
+  taskMessages: myCustomMessages,
+  worldInfoSource: 'chat',
+  includeCharacterCard: true,
+});
+```
+
+`worldInfoSource: 'chat'` activates World Info from the current chat history. Use `'task'` when the task messages should drive activation, and `'custom'` with `customWorldInfoMessages` when you supply the scan source explicitly. See [Generation](/development/extension-api/generation) for the full option reference.
+
+#### Manual assembly (advanced)
+
+Use the primitive pair when you need the assembled prompt without sending it, need to transform activated entries through `postActivationHook`, or need a transport that `generateTask` does not cover:
 
 ```js
 import { sendOpenAIRequest } from '../../../openai.js';
@@ -332,7 +355,7 @@ const result = await sendOpenAIRequest('quiet', requestMessages, signal, {
 });
 ```
 
-If you don't need character cards or world info, you can skip steps 1-2 and pass messages directly to `sendOpenAIRequest`. See [Generation](/development/extension-api/generation) for `sendOpenAIRequest` details.
+If you don't need character cards or world info, you can pass messages directly to `sendOpenAIRequest`. See [Generation](/development/extension-api/generation) for `sendOpenAIRequest` details.
 
 ## Prompt Structure Inspection
 

@@ -199,6 +199,10 @@ presets.state.deleteAll(target?: PresetRef | string | null): Promise<
 
 ## 提示词与世界书组装
 
+普通插件 LLM 请求应优先使用 [`generateTask`](/zh-CN/development/extension-api/generation)。它在一次调用中完成连接配置解析、世界书激活、提示词组装、请求分发和响应归一化。
+
+下面的 API 是底层原语。仅在需要检查或修改组装后的提示词、使用 `postActivationHook`，或通过 `generateTask` 不支持的传输方式发送时使用。
+
 ### buildPresetAwarePromptMessages
 
 ```ts
@@ -277,7 +281,10 @@ const response = await sendOpenAIRequest('quiet', promptMessages, signal, {
 
 ```ts
 resolveWorldInfoForMessages(
-  messages: Array<{ role: string, content: string }>,
+  messages: Array<
+    | { role: string, content: string }
+    | { mes: string, is_user?: boolean, is_system?: boolean, name?: string }
+  >,
   options?: {
     type?: string,
     fallbackToCurrentChat?: boolean,
@@ -292,7 +299,7 @@ resolveWorldInfoForMessages(
 
 | 参数 | 说明 |
 |------|------|
-| `messages` | 用于触发世界书关键词匹配的消息列表 |
+| `messages` | 用于触发世界书关键词匹配的消息列表。接受 `{ role, content }` 或 SillyTavern 聊天记录 `{ mes, is_user, is_system, name }` |
 | `options.type` | 激活类型（如 `'quiet'` 表示静默扫描，不影响主对话） |
 | `options.fallbackToCurrentChat` | 如果 messages 为空，是否回退到当前聊天消息 |
 | `options.postActivationHook` | 激活后的钩子函数，接收完整的世界书 payload，可以修改条目的内容、位置、深度，或增删条目 |
@@ -306,9 +313,25 @@ resolveWorldInfoForMessages(
 - 在不影响主对话的情况下进行世界书激活模拟
 :::
 
-### 推荐的独立 LLM 调用模式
+### 独立 LLM 调用
 
-当插件需要进行独立的 LLM 调用（如弹窗中的 AI 辅助功能）时，推荐以下模式：
+插件弹窗或后台任务调用 `generateTask`，传入任务消息并选择世界书激活方式：
+
+```js
+const context = Luker.getContext();
+
+const result = await context.generateTask({
+  taskMessages: myCustomMessages,
+  worldInfoSource: 'chat',
+  includeCharacterCard: true,
+});
+```
+
+`worldInfoSource: 'chat'` 从当前聊天记录激活世界书。任务消息本身应参与匹配时用 `'task'`；显式提供扫描来源时用 `'custom'` 并传 `customWorldInfoMessages`。完整参数见[生成请求](/zh-CN/development/extension-api/generation)。
+
+#### 手动组装（高级）
+
+需要拿到组装后的提示词但不发送、需要通过 `postActivationHook` 修改激活条目，或需要 `generateTask` 不支持的传输方式时，使用底层原语：
 
 ```js
 import { sendOpenAIRequest } from '../../../openai.js';
@@ -332,7 +355,7 @@ const result = await sendOpenAIRequest('quiet', requestMessages, signal, {
 });
 ```
 
-如果不需要角色卡和世界书，可以跳过步骤 1-2，直接传 messages 给 `sendOpenAIRequest`。`sendOpenAIRequest` 详见 [生成请求](/zh-CN/development/extension-api/generation)。
+如果不需要角色卡和世界书，可以直接把 messages 传给 `sendOpenAIRequest`。`sendOpenAIRequest` 详见 [生成请求](/zh-CN/development/extension-api/generation)。
 
 ## 提示词结构检视
 
