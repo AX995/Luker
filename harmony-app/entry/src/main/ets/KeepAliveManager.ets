@@ -4,6 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ImmersiveManager } from './ImmersiveManager';
+import { ExternalLinkSettings } from './ExternalLinkPolicy';
 
 const TAG: string = 'luker.keepalive';
 const DOMAIN: number = 0xE1EC;
@@ -257,8 +258,13 @@ export class LukerHarmonyBridge {
     ImmersiveManager.setEnabled(enabled === true);
   }
 
+  setOpenExternalLinksInBrowser(enabled: boolean): void {
+    ExternalLinkSettings.setOpenExternally(enabled === true);
+  }
+
   openExternalUrl(url: string): void {
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    const lowerUrl: string = url.toLowerCase();
+    if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://')) {
       return;
     }
     const want: Want = {

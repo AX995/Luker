@@ -14,6 +14,7 @@ import { exportTo } from '../crash/DiagnosticsExporter';
 import { writeArkWebExit } from '../crash/CrashCapture';
 import { LastExit } from '../crash/LastExit';
 import { KeepAliveManager, LukerHarmonyBridge } from '../KeepAliveManager';
+import { ExternalLinkSettings, LinkRoute, routeNewWindow, routeTopLevelNavigation } from '../ExternalLinkPolicy';
 import { FileSelectionPlan, MediaKind, planFileSelection } from '../FileSelectionPlanner';
 import { BusinessError } from '@kit.BasicServicesKit';
 
@@ -35,6 +36,8 @@ struct Index {
   private saveTargets: Map<string, string> = new Map<string, string>();
   private fsHandler: FullScreenExitHandler | null = null;
   private lastExitPressAt: number = 0;
+  private popupDialogController: CustomDialogController | null = null;
+  private popupDialogToken: number = 0;
 
   aboutToAppear(): void {
     this.statusMessage = this.res($r('app.string.starting_engine').id, '0s');
@@ -340,6 +343,74 @@ struct Index {
     return await documentPicker.select(options);
   }
 
+  /**
+   * Answers a page-initiated new-window request. A request with window features
+   * belongs to a page that keeps the opened window and talks to it through
+   * `window.opener`, so it becomes an in-app dialog. The remaining requests
+   * follow the external-link policy.
+   */
+  private handleNewWindow(event: OnWindowNewExtEvent): void {
+    if (event.isUserTrigger !== true) {
+      event.handler.setWebController(null);
+      return;
+    }
+    const target: string = event.targetUrl ?? '';
+    const openExternally: boolean = ExternalLinkSettings.isOpenExternally();
+    // The window-new event exposes no HTTP method, so a form post that opens a new window is not visible here.
+    const route: LinkRoute = routeNewWindow(
+      target,
+      event.isAlert === true,
+      SERVER_URL,
+      openExternally,
+    );
+    hilog.info(DOMAIN, TAG, 'new window: alert=%{public}s policy=%{public}d external=%{public}s route=%{public}d',
+      String(event.isAlert), event.navigationPolicy, String(openExternally), route);
+    if (route === LinkRoute.SystemBrowser) {
+      event.handler.setWebController(null);
+      this.bridge.openExternalUrl(target);
+      return;
+    }
+    const popupController: webview.WebviewController = new webview.WebviewController();
+    let dialogController: CustomDialogController | null = null;
+    try {
+      this.closePopupDialog();
+      const token: number = ++this.popupDialogToken;
+      dialogController = new CustomDialogController({
+        builder: PopupWebViewDialog({
+          popupController: popupController,
+          src: '',
+          onClosed: () => {
+            if (this.popupDialogToken === token) {
+              this.popupDialogController = null;
+            }
+          },
+        }),
+        autoCancel: false,
+        customStyle: true,
+      });
+      dialogController.open();
+      event.handler.setWebController(popupController);
+      this.popupDialogController = dialogController;
+    } catch (error) {
+      if (dialogController !== null) {
+        try {
+          dialogController.close();
+        } catch (closeError) {
+          hilog.error(DOMAIN, TAG, 'new window dialog cleanup failed: %{public}s', JSON.stringify(closeError));
+        }
+      }
+      this.popupDialogController = null;
+      event.handler.setWebController(null);
+      hilog.error(DOMAIN, TAG, 'new window dialog failed: %{public}s', JSON.stringify(error));
+    }
+  }
+
+  private closePopupDialog(): void {
+    const openDialog: CustomDialogController | null = this.popupDialogController;
+    this.popupDialogController = null;
+    openDialog?.close();
+  }
+
   build() {
     Stack() {
       if (this.serverReady) {
@@ -348,21 +419,48 @@ struct Index {
           .height('100%')
           .javaScriptAccess(true)
           .domStorageAccess(true)
+          .multiWindowAccess(true)
+          .allowWindowOpenMethod(true)
           .javaScriptProxy({
             object: this.bridge,
             name: 'LukerHarmony',
-            methodList: ['setGenerationActive', 'setImmersiveModeEnabled', 'openExternalUrl'],
+            methodList: [
+              'setGenerationActive',
+              'setImmersiveModeEnabled',
+              'setOpenExternalLinksInBrowser',
+              'openExternalUrl',
+            ],
             controller: this.controller
+          })
+          .onLoadIntercept((event) => {
+            const request = event.data;
+            if (!request.isMainFrame() || request.isRedirect()) {
+              return false;
+            }
+            const target: string = request.getRequestUrl();
+            if (routeTopLevelNavigation(
+              target, this.controller.getUrl(), SERVER_URL, ExternalLinkSettings.isOpenExternally(),
+            ) === LinkRoute.SystemBrowser) {
+              this.bridge.openExternalUrl(target);
+              return true;
+            }
+            return false;
+          })
+          .onWindowNewExt((event) => {
+            this.handleNewWindow(event);
           })
           .onControllerAttached(() => {
             this.setupDownloads();
           })
-          // A reload or renderer exit drops the page's generation state, so the
-          // native flag must not outlive it.
+          // A reload or renderer exit drops the page's generation state and
+          // leaves any popup on top of a page that no longer opened it, so the
+          // native flags must not outlive it.
           .onPageBegin(() => {
+            this.closePopupDialog();
             KeepAliveManager.setGenerationActive(false);
           })
           .onRenderExited((event) => {
+            this.closePopupDialog();
             KeepAliveManager.setGenerationActive(false);
             if (event && isArkWebCrashReason(event.renderExitReason)) {
               writeArkWebExit(this.crashFilesDir(), event.renderExitReason);
@@ -398,6 +496,73 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+  }
+}
+
+/**
+ * Hosts a page's new window in an app dialog. The page keeps its `window.opener`
+ * relation and closes the window from script; the URL bar shows the current
+ * address so the page inside stays identifiable. Navigation inside the dialog
+ * is not routed.
+ */
+@CustomDialog
+struct PopupWebViewDialog {
+  controller?: CustomDialogController;
+  popupController: webview.WebviewController = new webview.WebviewController();
+  src: string = '';
+  onClosed?: () => void;
+  @State currentUrl: string = '';
+
+  aboutToAppear(): void {
+    this.currentUrl = this.src;
+  }
+
+  aboutToDisappear(): void {
+    this.onClosed?.();
+  }
+
+  build() {
+    Column() {
+      Row() {
+        Text(this.currentUrl)
+          .fontSize(12)
+          .fontColor('#8b93a7')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Button('×')
+          .fontSize(18)
+          .fontColor('#cfd6e4')
+          .backgroundColor(Color.Transparent)
+          .onClick(() => this.closeDialog())
+      }
+      .width('100%')
+      .height(44)
+      .padding({ left: 16, right: 8 })
+      .backgroundColor('#232830')
+
+      Web({ src: this.src, controller: this.popupController })
+        .width('100%')
+        .layoutWeight(1)
+        .javaScriptAccess(true)
+        .domStorageAccess(true)
+        .multiWindowAccess(false)
+        .onPageBegin((event) => {
+          this.currentUrl = event.url;
+        })
+        .onWindowExit(() => {
+          this.closeDialog();
+        })
+    }
+    .width('85%')
+    .height('75%')
+    .backgroundColor('#15171a')
+    .borderRadius(16)
+    .clip(true)
+  }
+
+  private closeDialog(): void {
+    this.controller?.close();
   }
 }
 
