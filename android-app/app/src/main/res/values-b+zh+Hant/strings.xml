@@ -71,6 +71,7 @@
     <string name="http_auth_dialog_username_hint">使用者名稱</string>
     <string name="http_auth_dialog_password_hint">密碼</string>
     <string name="http_auth_dialog_login">登入</string>
+    <string name="no_app_can_open_link">沒有可開啟此連結的應用程式</string>
     <string name="update_download_queued">更新套件下載已加入佇列</string>
     <string name="update_download_started">開始下載更新套件</string>
     <string name="update_download_in_progress">已有更新套件下載任務正在進行</string>

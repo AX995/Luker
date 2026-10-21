@@ -2,6 +2,7 @@ package com.luker.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Dialog
 import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -14,17 +15,24 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Message
 import android.os.Process
 import android.os.SystemClock
 import android.text.InputType
+import android.text.TextUtils
 import android.util.Base64
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
@@ -39,6 +47,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -99,6 +108,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fullscreenContainer: FrameLayout
     private var endpointDialog: AlertDialog? = null
     private var httpAuthDialog: AlertDialog? = null
+    private var popupDialog: Dialog? = null
+    private var popupWebView: WebView? = null
+    private var popupUrlText: TextView? = null
+    private var pendingPopupWebView: WebView? = null
     @Volatile
     private var runtimeFailureDialogShown: Boolean = false
     private var pendingFilePathCallback: ValueCallback<Array<Uri>>? = null
@@ -294,6 +307,7 @@ class MainActivity : AppCompatActivity() {
             allowFileAccess = true
             allowContentAccess = true
             mediaPlaybackRequiresUserGesture = false
+            setSupportMultipleWindows(true)
         }
         cachedUserAgent = runCatching { webView.settings.userAgentString }.getOrNull()
         contentRootBasePaddingLeft = contentRoot.paddingLeft
@@ -304,17 +318,41 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(LukerAndroidBridge(), "LukerAndroid")
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
-                if (message != null) {
-                    val level = message.messageLevel()?.name ?: "LOG"
-                    val source = message.sourceId().orEmpty()
-                    val lineNo = message.lineNumber()
-                    val text = message.message().orEmpty()
-                    LukerDebugTrail.append(
-                        "webconsole",
-                        "$level $source:$lineNo $text",
-                    )
-                }
+                logConsoleMessage(message)
                 return super.onConsoleMessage(message)
+            }
+
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message?,
+            ): Boolean {
+                if (resultMsg == null || !isUserGesture) {
+                    return false
+                }
+                val transport = resultMsg.obj as WebView.WebViewTransport
+                if (isDialog) {
+                    showPopupWindow { popup ->
+                        transport.webView = popup
+                        resultMsg.sendToTarget()
+                    }
+                    return true
+                }
+
+                // A new window request without window features does not carry
+                // its URL into onCreateWindow. Hand the request to a webview
+                // that is not shown yet and decide on its first navigation.
+                pendingPopupWebView?.let { discardPopupWebView(it) }
+                val pending = createPopupWebView(decideFirstNavigation = true)
+                pendingPopupWebView = pending
+                transport.webView = pending
+                resultMsg.sendToTarget()
+                return true
+            }
+
+            override fun onCloseWindow(window: WebView?) {
+                dismissPopupWindow(window)
             }
 
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
@@ -400,7 +438,23 @@ class MainActivity : AppCompatActivity() {
             }
         }
         webView.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                if (request == null || !request.isForMainFrame || request.isRedirect) {
+                    return false
+                }
+                val url = request.url?.toString()
+                if (LukerExternalLinkPolicy.routeTopLevelNavigation(
+                        url,
+                        view?.url,
+                        resolveAppOrigin(),
+                        LukerExternalLinkSettings.openExternally,
+                    ) == LinkRoute.SYSTEM_BROWSER
+                ) {
+                    openInSystemBrowser(url)
+                    return true
+                }
+                return false
+            }
 
             override fun onReceivedHttpAuthRequest(
                 view: WebView?,
@@ -1068,6 +1122,11 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun isPerformanceTraceRecording(): Boolean = LukerCdpCapture.isTraceRecording()
+
+        @JavascriptInterface
+        fun setOpenExternalLinksInBrowser(enabled: Boolean) {
+            LukerExternalLinkSettings.setOpenExternally(enabled)
+        }
     }
 
     private fun captureDir(): File = File(filesDir, LukerCdpCollector.CDP_DIR_NAME)
@@ -2323,6 +2382,244 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    private fun logConsoleMessage(message: ConsoleMessage?) {
+        if (message == null) {
+            return
+        }
+        val level = message.messageLevel()?.name ?: "LOG"
+        val source = message.sourceId().orEmpty()
+        val lineNo = message.lineNumber()
+        val text = message.message().orEmpty()
+        LukerDebugTrail.append(
+            "webconsole",
+            "$level $source:$lineNo $text",
+        )
+    }
+
+    private fun resolveAppOrigin(): String =
+        LukerExternalLinkPolicy.originOf(LukerEndpointConfig.load(applicationContext).resolveBaseUrl())
+
+    private fun openInSystemBrowser(url: String?) {
+        if (url.isNullOrBlank()) {
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (error: ActivityNotFoundException) {
+            Log.e(tag, "No activity can open $url", error)
+            Toast.makeText(this, getString(R.string.no_app_can_open_link), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Builds the webview used by the floating window. [decideFirstNavigation]
+     * is set only for the hidden webview that receives a new window request
+     * without window features: that webview's first main frame navigation is
+     * the only place where the request's URL is visible, so it is also the
+     * only navigation the popup routes.
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun createPopupWebView(decideFirstNavigation: Boolean): WebView {
+        val popup = WebView(this)
+        popup.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = true
+            allowContentAccess = true
+            mediaPlaybackRequiresUserGesture = false
+            setSupportMultipleWindows(true)
+        }
+        popup.webViewClient = object : WebViewClient() {
+            private var awaitingFirstNavigation = decideFirstNavigation
+
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                if (!awaitingFirstNavigation || request == null || !request.isForMainFrame) {
+                    return false
+                }
+                awaitingFirstNavigation = false
+                val url = request.url?.toString()
+                // WebResourceRequest exposes no HTTP method, so a form post that opens a new window is not visible here.
+                if (!request.isRedirect &&
+                    LukerExternalLinkPolicy.routeNewWindow(
+                        url,
+                        hasWindowFeatures = false,
+                        appOrigin = resolveAppOrigin(),
+                        openExternally = LukerExternalLinkSettings.openExternally,
+                    ) == LinkRoute.SYSTEM_BROWSER
+                ) {
+                    openInSystemBrowser(url)
+                    discardPopupWebView(view)
+                    return true
+                }
+                if (view != null) {
+                    showPopupWindow(view)
+                }
+                return false
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                updatePopupUrl(url)
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                updatePopupUrl(url)
+            }
+
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                val crashed = detail?.didCrash() ?: false
+                val url = runCatching { view?.url }.getOrNull()
+                Log.w(tag, "Popup WebView render process gone (didCrash=$crashed, url=$url)")
+                LukerDebugTrail.append("native", "popup renderProcessGone didCrash=$crashed url=$url")
+                if (view != null && view === popupWebView && popupDialog != null) {
+                    // The dialog's dismiss listener removes and destroys the
+                    // webview, so this path must not destroy it a second time.
+                    (view.parent as? ViewGroup)?.removeView(view)
+                    popupDialog?.dismiss()
+                } else {
+                    discardPopupWebView(view)
+                }
+                return true
+            }
+        }
+        popup.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
+                logConsoleMessage(message)
+                return super.onConsoleMessage(message)
+            }
+
+            override fun onCloseWindow(window: WebView?) {
+                dismissPopupWindow(window)
+            }
+        }
+        return popup
+    }
+
+    /**
+     * Shows the floating window. [existingWebView] is the hidden webview of a
+     * new window request without window features; without one the window
+     * creates its own. The dialog is shown before [onReady] so a
+     * `WebView.WebViewTransport` is only populated once the popup is part of
+     * the view system.
+     */
+    private fun showPopupWindow(
+        existingWebView: WebView? = null,
+        onReady: (WebView) -> Unit = {},
+    ) {
+        closePopupWindow()
+
+        val popup = existingWebView ?: createPopupWebView(decideFirstNavigation = false)
+        if (pendingPopupWebView === popup) {
+            pendingPopupWebView = null
+        }
+
+        val density = resources.displayMetrics.density
+        val padding = (12 * density).toInt()
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(padding, 0, padding, 0)
+        }
+        val urlView = TextView(this).apply {
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            textSize = 12f
+            setTextColor(Color.parseColor("#C7CBD6"))
+            text = popup.url.orEmpty()
+        }
+        val closeButton = Button(this).apply {
+            text = "×"
+            textSize = 18f
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(padding, 0, padding, 0)
+            setTextColor(Color.parseColor("#F2F3F7"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener { popupDialog?.dismiss() }
+        }
+        header.addView(
+            urlView,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f),
+        )
+        header.addView(
+            closeButton,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT),
+        )
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 12 * density
+                setColor(Color.parseColor("#1E1F24"))
+            }
+        }
+        root.addView(
+            header,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (44 * density).toInt()),
+        )
+        root.addView(
+            popup,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
+        )
+
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setContentView(root)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setDimAmount(0.58f)
+            setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            setGravity(Gravity.CENTER)
+            val metrics = resources.displayMetrics
+            setLayout(
+                (metrics.widthPixels * 0.85f).toInt(),
+                (metrics.heightPixels * 0.75f).toInt(),
+            )
+        }
+        dialog.setOnDismissListener {
+            if (popupDialog === dialog) {
+                popupDialog = null
+                popupWebView = null
+                popupUrlText = null
+            }
+            (popup.parent as? ViewGroup)?.removeView(popup)
+            popup.destroy()
+        }
+
+        popupDialog = dialog
+        popupWebView = popup
+        popupUrlText = urlView
+        dialog.show()
+        onReady(popup)
+    }
+
+    private fun closePopupWindow() {
+        popupDialog?.dismiss()
+    }
+
+    private fun dismissPopupWindow(window: WebView?) {
+        val popup = popupWebView
+        if (popup == null || window == null || window !== popup) {
+            return
+        }
+        popupDialog?.dismiss()
+    }
+
+    private fun discardPopupWebView(window: WebView?) {
+        if (window == null) {
+            return
+        }
+        if (pendingPopupWebView === window) {
+            pendingPopupWebView = null
+        }
+        (window.parent as? ViewGroup)?.removeView(window)
+        window.destroy()
+    }
+
+    private fun updatePopupUrl(url: String?) {
+        popupUrlText?.text = url.orEmpty()
+    }
+
     private fun bootstrapConfiguredEndpoint() {
         val selection = LukerEndpointConfig.load(applicationContext)
         val bootstrapToken = bootstrapSequence.incrementAndGet()
@@ -2710,6 +3007,10 @@ class MainActivity : AppCompatActivity() {
         backgroundKeepAliveEnabled = false
         endpointDialog?.dismiss()
         endpointDialog = null
+        popupDialog?.dismiss()
+        popupDialog = null
+        pendingPopupWebView?.destroy()
+        pendingPopupWebView = null
         httpAuthDialog?.cancel()
         httpAuthDialog = null
         pendingFilePathCallback?.onReceiveValue(null)

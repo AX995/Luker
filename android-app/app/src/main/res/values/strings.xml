@@ -71,6 +71,7 @@
     <string name="http_auth_dialog_username_hint">Username</string>
     <string name="http_auth_dialog_password_hint">Password</string>
     <string name="http_auth_dialog_login">Sign In</string>
+    <string name="no_app_can_open_link">No app can open this link</string>
     <string name="update_download_queued">Update download queued</string>
     <string name="update_download_started">Starting update download</string>
     <string name="update_download_in_progress">Another update download is already in progress</string>
