@@ -31,6 +31,7 @@ import {
 import { accountStorage } from './util/AccountStorage.js';
 import { getOrCreatePersonaDescriptor, setPersonaDescription, user_avatar } from './personas.js';
 import { initActionableSingleSelect, refreshOpenDropdown } from './select2-actionable-single.js';
+import { buildBulkDeleteConfirmBody } from './select2-multiselect.js';
 import { showUndoToast } from './undo-toast.js';
 
 function buildWorldInfoDragHelper(item) {
@@ -8520,16 +8521,47 @@ export async function deleteWorldInfo(worldInfoName) {
     return true;
 }
 
+/**
+ * Deletes one or more World/Lorebooks and offers a single undo that restores
+ * all of them.
+ * @param {string|string[]} worldInfoName One name, or several
+ * @returns {Promise<boolean>} Whether anything was deleted
+ */
 export async function deleteWorldInfoWithUndo(worldInfoName) {
-    const resolvedWorldInfoName = resolveWorldInfoName(worldInfoName);
-    if (!resolvedWorldInfoName) {
+    const requestedNames = Array.isArray(worldInfoName) ? worldInfoName : [worldInfoName];
+    const resolvedNames = Array.from(new Set(requestedNames.map((name) => resolveWorldInfoName(name)).filter(Boolean)));
+    if (!resolvedNames.length) {
         return false;
     }
 
-    const worldData = structuredClone(await loadWorldInfo(resolvedWorldInfoName));
+    /** @type {Map<string, any>} */
+    const worldDataByNames = new Map();
+    /** @type {string[]} */
+    const unreadableNames = [];
+    for (const name of resolvedNames) {
+        const worldData = structuredClone(await loadWorldInfo(name));
+        if (worldData) {
+            worldDataByNames.set(name, worldData);
+        } else {
+            unreadableNames.push(name);
+        }
+    }
+
+    // A book whose contents cannot be read has nothing to restore from, so
+    // deleting it would make the undo a lie. Report it and leave it alone.
+    if (unreadableNames.length) {
+        toastr.warning(unreadableNames.join(', '), t`Some World/Lorebooks could not be read and were not deleted`);
+        resolvedNames.splice(0, resolvedNames.length, ...resolvedNames.filter((name) => worldDataByNames.has(name)));
+    }
+    if (!resolvedNames.length) {
+        return false;
+    }
+
+    const isLookupNameInBatch = (candidate) => resolvedNames.some((name) => areLookupNamesEqual(candidate, name));
+
     const worldEditorName = getSelectedWorldEditorName();
     const snapshot = {
-        worldData,
+        worldDataByNames,
         selectedWorldInfo: structuredClone(selected_world_info),
         charLore: world_info.charLore ? structuredClone(world_info.charLore) : null,
         characterWorld: String($('#character_world').val() || ''),
@@ -8540,8 +8572,8 @@ export async function deleteWorldInfoWithUndo(worldInfoName) {
     if (world_info.charLore) {
         for (let index = world_info.charLore.length - 1; index >= 0; index--) {
             const charLore = world_info.charLore[index];
-            if (charLore.extraBooks?.some((entry) => areLookupNamesEqual(entry, resolvedWorldInfoName))) {
-                const nextExtraBooks = charLore.extraBooks.filter((entry) => !areLookupNamesEqual(entry, resolvedWorldInfoName));
+            if (charLore.extraBooks?.some((entry) => isLookupNameInBatch(entry))) {
+                const nextExtraBooks = charLore.extraBooks.filter((entry) => !isLookupNameInBatch(entry));
                 if (nextExtraBooks.length === 0) {
                     world_info.charLore.splice(index, 1);
                 } else {
@@ -8553,21 +8585,27 @@ export async function deleteWorldInfoWithUndo(worldInfoName) {
         saveSettingsDebounced();
     }
 
-    const deleted = await deleteWorldInfo(resolvedWorldInfoName);
-    if (!deleted) {
+    const deletedNames = [];
+    for (const name of resolvedNames) {
+        const deleted = await deleteWorldInfo(name);
+        if (deleted) {
+            deletedNames.push(name);
+        }
+    }
+
+    if (!deletedNames.length) {
         return false;
     }
 
-    if (!snapshot.worldData) {
-        toastr.success(t`World/Lorebook deleted.`);
-        return true;
-    }
+    const toastMessage = deletedNames.length > 1 ? t`World/Lorebooks deleted.` : t`World/Lorebook deleted.`;
 
     showUndoToast({
-        message: t`World/Lorebook deleted.`,
+        message: toastMessage,
         onUndo: async () => {
             try {
-                await saveWorldInfo(resolvedWorldInfoName, structuredClone(snapshot.worldData), true);
+                for (const name of deletedNames) {
+                    await saveWorldInfo(name, structuredClone(snapshot.worldDataByNames.get(name)), true);
+                }
                 await updateWorldInfoList();
 
                 if (snapshot.charLore) {
@@ -8580,19 +8618,19 @@ export async function deleteWorldInfoWithUndo(worldInfoName) {
                 syncGlobalWorldInfoSelectionUi();
                 await eventSource.emit(event_types.WORLDINFO_SETTINGS_UPDATED);
 
-                if (areLookupNamesEqual(snapshot.characterWorld, resolvedWorldInfoName)) {
-                    $('#character_world').val(resolvedWorldInfoName).trigger('change');
+                if (isLookupNameInBatch(snapshot.characterWorld)) {
+                    $('#character_world').val(snapshot.characterWorld).trigger('change');
                     setWorldInfoButtonClass(undefined, true);
                     if (menu_type != 'create') {
                         saveCharacterDebounced();
                     }
                 }
 
-                if (areLookupNamesEqual(snapshot.personaLorebook, resolvedWorldInfoName)) {
-                    power_user.persona_description_lorebook = resolvedWorldInfoName;
+                if (isLookupNameInBatch(snapshot.personaLorebook)) {
+                    power_user.persona_description_lorebook = snapshot.personaLorebook;
                     if (power_user.personas[user_avatar]) {
                         const object = getOrCreatePersonaDescriptor();
-                        object.lorebook = resolvedWorldInfoName;
+                        object.lorebook = snapshot.personaLorebook;
                     }
                     $('#persona_lore_button').toggleClass('world_set', true);
                 }
@@ -8600,8 +8638,8 @@ export async function deleteWorldInfoWithUndo(worldInfoName) {
                 requestAsyncDiffForNextSettingsSave();
                 saveSettingsDebounced();
 
-                if (areLookupNamesEqual(snapshot.worldEditorName, resolvedWorldInfoName)) {
-                    const restoredIndex = resolveWorldInfoIndex(resolvedWorldInfoName);
+                if (isLookupNameInBatch(snapshot.worldEditorName)) {
+                    const restoredIndex = resolveWorldInfoIndex(snapshot.worldEditorName);
                     if (restoredIndex !== -1) {
                         $('#world_editor_select').val(restoredIndex).trigger('change');
                     }
@@ -11456,6 +11494,26 @@ export function initWorldInfo() {
 
             await deleteWorldInfoWithUndo(worldName);
         },
+        onBulkDelete: async (items) => {
+            const worldNames = Array.from(new Set(items.map((item) => resolveWorldInfoName(item.text)).filter(Boolean)));
+            if (!worldNames.length) {
+                return;
+            }
+
+            const confirmation = await Popup.show.confirm(
+                t`Delete the selected World/Lorebooks?`,
+                `${buildBulkDeleteConfirmBody(worldNames)}<br><br>${t`This action is irreversible!`}`,
+            );
+
+            if (!confirmation) {
+                return;
+            }
+
+            await deleteWorldInfoWithUndo(worldNames);
+        },
+        bulkDeleteButtonTitle: t`Delete`,
+        selectAllTitle: t`Select all`,
+        selectedLabel: t`Selected`,
     });
 
     let worldInfoAutocompleteCloseFrame = 0;

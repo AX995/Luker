@@ -1,9 +1,13 @@
 import { t } from './i18n.js';
+import { createSelectionState } from './select2-multiselect.js';
 
 let actionableSingleSelectCounter = 0;
 
 /** @type {Map<string, Set<string>>} ownerKey -> collapsed group IDs (session-only) */
 const collapsedGroupsMap = new Map();
+
+/** @type {WeakMap<HTMLSelectElement, AbortController>} select -> capturing checkbox guard */
+const multiselectGuardControllers = new WeakMap();
 
 function buildOwnerKey(selectElement) {
     const baseId = String(selectElement?.id || 'select')
@@ -59,6 +63,15 @@ function isGroupActionTarget(target) {
         return false;
     }
     return !!target.closest('.luker-preset-group-action, .luker-preset-group-subgroup');
+}
+
+function isCheckboxTarget(target, ownerKey) {
+    if (!(target instanceof Element)) {
+        return false;
+    }
+
+    const checkbox = target.closest('.luker-action-select2-option__checkbox');
+    return checkbox instanceof HTMLElement && checkbox.dataset.lukerActionOwner === ownerKey;
 }
 
 /**
@@ -416,6 +429,10 @@ function showPresetContextMenu(anchor, presetName, callbacks, selectElement, own
  * @param {string} [options.dropdownCssClass]
  * @param {object} [options.select2Options]
  * @param {object} [options.presetGroupCallbacks]
+ * @param {((options: Array<{ ownerKey: string, value: string, text: string, element: HTMLOptionElement|null, selectElement: HTMLSelectElement }>) => Promise<void>|void)|null} [options.onBulkDelete]
+ * @param {string} [options.bulkDeleteButtonTitle='Delete']
+ * @param {string} [options.selectAllTitle='Select all']
+ * @param {string} [options.selectedLabel='Selected']
  */
 export function initActionableSingleSelect(select, {
     placeholder = '',
@@ -429,6 +446,10 @@ export function initActionableSingleSelect(select, {
     dropdownCssClass = '',
     select2Options = {},
     presetGroupCallbacks = null,
+    onBulkDelete = null,
+    bulkDeleteButtonTitle = 'Delete',
+    selectAllTitle = 'Select all',
+    selectedLabel = 'Selected',
 } = {}) {
     const $select = select?.jquery ? select : $(select);
     const selectElement = $select.get(0);
@@ -453,6 +474,119 @@ export function initActionableSingleSelect(select, {
         collapsedGroupsMap.set(ownerKey, new Set());
     }
     const collapsedGroups = collapsedGroupsMap.get(ownerKey);
+
+    // Multi-select batch mode: a checkbox per deletable row, a toolbar, and a
+    // merged delete. The wrapper owns selection UI only; the call site owns the
+    // confirm, the delete, the undo, and its own refresh.
+    const selection = createSelectionState();
+    const bulkDeleteEnabled = typeof onBulkDelete === 'function';
+
+    const getDropdown = () => $select.data('select2')?.$dropdown;
+
+    // `$dropdown` is select2's outer wrapper span (the `attachBody` decorator
+    // returns its own container), so the class that carries `dropdownCssClass`
+    // lives on the `.select2-dropdown` element inside it.
+    const getDropdownSurface = () => {
+        const $dropdown = getDropdown();
+        if (!$dropdown?.length) {
+            return null;
+        }
+
+        return $dropdown.hasClass('select2-dropdown') ? $dropdown : $dropdown.find('.select2-dropdown').first();
+    };
+
+    const buildRowCheckbox = (optionData) => {
+        return $('<input type="checkbox" class="luker-action-select2-option__checkbox" tabindex="-1">')
+            .attr('data-luker-action-owner', ownerKey)
+            .attr('data-option-value', optionData.value)
+            .attr('title', optionData.text)
+            .prop('checked', selection.has(optionData.value));
+    };
+
+    const getRenderedSelectableValues = () => {
+        const $dropdown = getDropdown();
+        if (!$dropdown?.length) {
+            return [];
+        }
+
+        const values = [];
+        $dropdown.find('.select2-results__option .luker-action-select2-option__checkbox').each(function () {
+            values.push(String($(this).attr('data-option-value') ?? ''));
+        });
+        return values;
+    };
+
+    const applyBatchMode = (active) => {
+        const $surface = getDropdownSurface();
+        if ($surface?.length) {
+            $surface.toggleClass('luker-multiselect-active', active);
+        }
+    };
+
+    const syncCheckboxTicks = () => {
+        const $dropdown = getDropdown();
+        if (!$dropdown?.length) {
+            return;
+        }
+
+        $dropdown.find('.luker-action-select2-option__checkbox').each(function () {
+            $(this).prop('checked', selection.has($(this).attr('data-option-value')));
+        });
+    };
+
+    const renderBulkToolbar = () => {
+        const $results = getDropdown()?.find('.select2-results');
+        if (!$results?.length) {
+            return;
+        }
+
+        $results.find('.luker-bulk-delete-toolbar').remove();
+
+        if (!bulkDeleteEnabled || selection.size() === 0) {
+            applyBatchMode(false);
+            return;
+        }
+
+        const renderedValues = getRenderedSelectableValues();
+        const allRenderedSelected = renderedValues.length > 0 && renderedValues.every((value) => selection.has(value));
+
+        const $toolbar = $('<div class="luker-bulk-delete-toolbar"></div>')
+            .attr('data-luker-action-owner', ownerKey);
+        const $selectAll = $('<input type="checkbox" class="luker-bulk-delete-toolbar__select-all">')
+            .attr('data-luker-action-owner', ownerKey)
+            .attr('title', selectAllTitle)
+            .attr('aria-label', selectAllTitle)
+            .prop('checked', allRenderedSelected)
+            .on('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                const values = getRenderedSelectableValues();
+                if (!values.length) {
+                    return;
+                }
+
+                if (values.every((value) => selection.has(value))) {
+                    selection.remove(values);
+                } else {
+                    selection.add(values);
+                }
+
+                syncCheckboxTicks();
+                renderBulkToolbar();
+            });
+        const $count = $('<span class="luker-bulk-delete-toolbar__count"></span>')
+            .text(`${selectedLabel}: ${selection.size()}`);
+        const $delete = $('<button type="button" class="luker-bulk-delete-toolbar__delete"></button>')
+            .attr('data-luker-action-owner', ownerKey)
+            .attr('title', bulkDeleteButtonTitle)
+            .attr('aria-label', bulkDeleteButtonTitle)
+            .text(bulkDeleteButtonTitle);
+
+        $toolbar.append($selectAll, $count, $delete);
+        $results.prepend($toolbar);
+        applyBatchMode(true);
+    };
 
     if ($select.data('select2')) {
         $select.select2('destroy');
@@ -519,6 +653,9 @@ export function initActionableSingleSelect(select, {
                     .attr('data-preset-group-id', groupId)
                     .css('padding-left', depth > 0 ? ((depth + 1) * 20) + 'px' : '');
                 const label = $('<span class="luker-action-select2-option__label"></span>').text(optionData.text);
+                if (bulkDeleteEnabled && canDelete(optionData)) {
+                    row.append(buildRowCheckbox(optionData));
+                }
                 row.append(label);
 
                 if (presetGroupCallbacks) {
@@ -551,6 +688,9 @@ export function initActionableSingleSelect(select, {
 
             const row = $('<div class="luker-action-select2-option"></div>');
             const label = $('<span class="luker-action-select2-option__label"></span>').text(optionData.text);
+            if (bulkDeleteEnabled && canDelete(optionData)) {
+                row.append(buildRowCheckbox(optionData));
+            }
             row.append(label);
 
             if (presetGroupCallbacks) {
@@ -643,6 +783,8 @@ export function initActionableSingleSelect(select, {
                         $results.prepend($toolbar);
                     }
                 }
+
+                renderBulkToolbar();
             });
         });
 
@@ -650,6 +792,8 @@ export function initActionableSingleSelect(select, {
         .off('select2:close' + namespace)
         .on('select2:close' + namespace, function () {
             dismissContextMenu();
+            selection.clear();
+            renderBulkToolbar();
         });
 
     // === Prevent selection of group headers and action buttons ===
@@ -657,6 +801,10 @@ export function initActionableSingleSelect(select, {
         .off('select2:selecting' + namespace)
         .on('select2:selecting' + namespace, function (event) {
             const originalTarget = event?.params?.args?.originalEvent?.target;
+            if (isCheckboxTarget(originalTarget, ownerKey)) {
+                event.preventDefault();
+                return;
+            }
             if (isDeleteButtonTarget(originalTarget, ownerKey)) {
                 event.preventDefault();
                 return;
@@ -739,6 +887,99 @@ export function initActionableSingleSelect(select, {
                 await onDelete(optionData);
             } catch (error) {
                 console.error('Actionable single select delete handler failed', error);
+            }
+        });
+
+    // === Multi-select checkbox handler ===
+    // Bound to `click`, not `pointerup`: the checkbox owns its own checked
+    // state, and the native toggle lands on `click`. Toggling from `pointerup`
+    // would race that toggle. `select2:selecting` above is what stops the row
+    // from being selected.
+    //
+    // The capturing `mouseup` guard is load-bearing. select2 listens for
+    // `mouseup` on the results list and, when the clicked row is the option
+    // that is already selected, it fires `close` rather than `select` — and
+    // `select2:selecting` cannot veto a close. Without the guard, ticking the
+    // checkbox on the currently selected row would dismiss the dropdown and
+    // silently drop the batch selection. The listener must capture, because
+    // select2's listener sits on an ancestor and a delegated document handler
+    // runs after it.
+    multiselectGuardControllers.get(selectElement)?.abort();
+    const guardController = new AbortController();
+    multiselectGuardControllers.set(selectElement, guardController);
+
+    document.addEventListener('mouseup', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+
+        const checkbox = target.closest('.luker-action-select2-option__checkbox');
+        if (checkbox instanceof HTMLElement && checkbox.dataset.lukerActionOwner === ownerKey) {
+            event.stopPropagation();
+        }
+    }, { capture: true, signal: guardController.signal });
+
+    $(document)
+        .off('click' + namespace + '.multiselect')
+        .on('click' + namespace + '.multiselect', '.luker-action-select2-option__checkbox', function (event) {
+            if ($(this).attr('data-luker-action-owner') !== ownerKey) {
+                return;
+            }
+
+            event.stopPropagation();
+
+            // Deliberately no preventDefault(): cancelling a checkbox click
+            // makes the browser restore the pre-click checkedness after this
+            // handler returns, wiping whatever we set here. The native toggle
+            // has already run, so `this.checked` is the new state and is the
+            // authority; the selection set follows it.
+            const value = String($(this).attr('data-option-value') ?? '');
+            if (this.checked) {
+                selection.add([value]);
+            } else {
+                selection.remove([value]);
+            }
+            renderBulkToolbar();
+        });
+
+    // === Bulk delete toolbar handler ===
+    // `click` rather than `pointerup`: a `<button>` fires `click` for mouse,
+    // touch, Enter and Space alike, so the toolbar stays operable from the
+    // keyboard. `pointerup` alone only covered pointing devices.
+    $(document)
+        .off('click' + namespace + '.bulkDelete')
+        .on('click' + namespace + '.bulkDelete', '.luker-bulk-delete-toolbar__delete', async function (event) {
+            if ($(this).attr('data-luker-action-owner') !== ownerKey || typeof onBulkDelete !== 'function') {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            const items = selection.values().map((value) => {
+                const optionElement = Array.from(selectElement.options).find((option) => String(option.value) === value) || null;
+                return {
+                    ownerKey,
+                    value,
+                    text: String(optionElement?.textContent || '').trim(),
+                    element: optionElement,
+                    selectElement,
+                };
+            }).filter((optionData) => canDelete(optionData));
+
+            if (!items.length) {
+                return;
+            }
+
+            if ($select.data('select2')) {
+                $select.select2('close');
+            }
+
+            try {
+                await onBulkDelete(items);
+            } catch (error) {
+                console.error('Actionable single select bulk delete handler failed', error);
             }
         });
 

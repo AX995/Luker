@@ -30,6 +30,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Fixed a timed-out request's retry reusing the same generation id, which made the retry read the previous attempt's buffered error as its own result and left the previous attempt running in parallel.
 - Fixed the deprecated proxy preset migration losing the profile proxy password and leaving migrated profiles to authenticate with the active provider key.
 - Fixed OpenRouter streamed reasoning details accumulating as one fragment per delta instead of merging into complete entries.
+- The connection-profile picker now supports multi-select deletion.
 
 ### Storage & Sync
 
@@ -77,6 +78,14 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 
 - Fixed picture-in-picture keep-alive failing to start on iOS.
 - Fixed the background keep-alive failing to exit after a generation ended.
+
+### World Info
+
+- The world-book picker now supports multi-select deletion.
+
+### Presets
+
+- Preset and template pickers now support multi-select deletion.
 
 ### Fixes
 

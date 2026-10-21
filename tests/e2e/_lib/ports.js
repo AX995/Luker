@@ -33,6 +33,7 @@ export const PORT_RANGES = {
     'server-plugins': { base: 8661, count: 4 },
     desktop:        { base: 8671, count: 6 },
     diagnostics:    { base: 8681, count: 4 },
+    bulkdelete:     { base: 8691, count: 4 },
 };
 
 /**

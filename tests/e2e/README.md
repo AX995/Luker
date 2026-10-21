@@ -23,7 +23,8 @@ tests/e2e/
 ├── groups/         #84–#88  Group chat rotation, MG+Skills coexist, director main speaker, persistence+branch+export
 ├── extensions/     #89–#98  Regex, vectors, authors note, quick reply, translate, TTS, SD, caption, slash, function-call
 ├── personas/       #99–#106 Persona CRUD/binding/avatar, settings persistence, i18n, multi-user, announcements
-└── regression/     #107–#115 Locks for recent + still-open known bugs
+├── regression/     #107–#115 Locks for recent + still-open known bugs
+└── select2-bulk-delete/ #116–#119 Multi-select bulk delete on the lorebook, preset, and connection-profile dropdowns
 ```
 
 ## Running

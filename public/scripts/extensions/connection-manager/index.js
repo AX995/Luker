@@ -17,6 +17,8 @@ import { t } from '../../i18n.js';
 import { getSecretLabelById, SECRET_KEYS, writeSecret } from '../../secrets.js';
 import { applyProxyProfileEntry, chat_completion_sources, getCurrentProxyProfileEntry, oai_settings, proxies, whenChatCompletionModelListReady } from '../../openai.js';
 import { initActionableSingleSelect } from '../../select2-actionable-single.js';
+import { buildBulkDeleteConfirmBody } from '../../select2-multiselect.js';
+import { showUndoToast } from '../../undo-toast.js';
 import { performFuzzySearch } from '/scripts/power-user.js';
 import { StreamingDisplay } from '/scripts/streaming-display.js';
 import { ConnectionManagerRequestService } from '../shared.js';
@@ -686,6 +688,81 @@ async function deleteConnectionProfile(profileId = extension_settings.connection
 }
 
 /**
+ * Deletes several connection profiles behind one confirm, with one merged undo.
+ *
+ * `CONNECTION_PROFILE_LOADED, <None>` is emitted on commit rather than up
+ * front: emitting it immediately would churn every downstream consumer on a
+ * delete the user may still undo.
+ * @param {string[]} profileIds Profile ids to remove
+ * @param {() => Promise<void>|void} refresh Re-renders the picker, details panel, and buttons
+ * @returns {Promise<void>}
+ */
+async function deleteConnectionProfilesWithUndo(profileIds, refresh) {
+    const requested = new Set((Array.isArray(profileIds) ? profileIds : [])
+        .map((profileId) => String(profileId || ''))
+        .filter(Boolean));
+    const removed = extension_settings.connectionManager.profiles
+        .filter((profile) => requested.has(profile.id));
+    if (!removed.length) {
+        return;
+    }
+
+    const selectedId = extension_settings.connectionManager.selectedProfile;
+    const wasSelected = removed.some((profile) => profile.id === selectedId);
+    const snapshots = structuredClone(removed);
+
+    for (let index = extension_settings.connectionManager.profiles.length - 1; index >= 0; index--) {
+        if (requested.has(extension_settings.connectionManager.profiles[index].id)) {
+            extension_settings.connectionManager.profiles.splice(index, 1);
+        }
+    }
+    if (wasSelected) {
+        extension_settings.connectionManager.selectedProfile = null;
+    }
+    saveSettingsDebounced();
+
+    await refresh();
+
+    showUndoToast({
+        message: t`Connection profiles deleted.`,
+        onUndo: async () => {
+            extension_settings.connectionManager.profiles.push(...snapshots);
+            if (wasSelected) {
+                extension_settings.connectionManager.selectedProfile = selectedId;
+            }
+            saveSettingsDebounced();
+            await refresh();
+
+            if (wasSelected) {
+                const restored = extension_settings.connectionManager.profiles
+                    .find((profile) => profile.id === selectedId);
+                if (restored) {
+                    // Emitting the event only tells consumers which profile is
+                    // *named* as active; the connection itself is applied by
+                    // running the profile's commands. Without this the picker
+                    // shows the restored profile while the live connection is
+                    // still whatever the user picked in the meantime.
+                    await applyConnectionProfile(restored);
+                }
+                await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, restored?.name || NONE);
+            }
+        },
+        onCommit: async () => {
+            for (const profile of snapshots) {
+                await eventSource.emit(event_types.CONNECTION_PROFILE_DELETED, profile);
+            }
+            // Only announce `<None>` when nothing has been selected since the
+            // delete. If the user picked another profile during the undo
+            // window, that profile is already applied and announcing `<None>`
+            // would tell every consumer the connection was cleared.
+            if (wasSelected && !extension_settings.connectionManager.selectedProfile) {
+                await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, NONE);
+            }
+        },
+    });
+}
+
+/**
  * Formats the connection profile for display.
  * @param {ConnectionProfile} profile Connection profile
  * @returns {Object} Fancy profile
@@ -1281,6 +1358,32 @@ export async function init() {
                 await eventSource.emit(event_types.CONNECTION_PROFILE_LOADED, NONE);
             }
         },
+        onBulkDelete: async (items) => {
+            const ids = items.map((item) => item.value).filter(Boolean);
+            if (!ids.length) {
+                return;
+            }
+
+            const names = ids.map((id) => extension_settings.connectionManager.profiles
+                .find((profile) => profile.id === id)?.name || id);
+            const confirmed = await Popup.show.confirm(
+                t`Delete the selected connection profiles?`,
+                `${buildBulkDeleteConfirmBody(names)}<br><br>${t`This action is irreversible!`}`,
+            );
+            if (!confirmed) {
+                return;
+            }
+
+            const refreshProfileUi = async () => {
+                renderConnectionProfiles(profiles);
+                await renderDetailsContent(detailsContent);
+                toggleProfileSpecificButtons();
+            };
+            await deleteConnectionProfilesWithUndo(ids, refreshProfileUi);
+        },
+        bulkDeleteButtonTitle: t`Delete connection profile`,
+        selectAllTitle: t`Select all`,
+        selectedLabel: t`Selected`,
     });
 
     /**

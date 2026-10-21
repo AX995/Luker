@@ -59,6 +59,7 @@ import {
 } from './world-info.js';
 import { showUndoToast } from './undo-toast.js';
 import { initActionableSingleSelect } from './select2-actionable-single.js';
+import { buildBulkDeleteConfirmBody } from './select2-multiselect.js';
 
 const presetManagers = {};
 const PRESET_LOREBOOK_BINDABLE_APIS = new Set(['kobold', 'novel', 'openai', 'textgenerationwebui']);
@@ -435,6 +436,12 @@ function registerPresetManagers() {
                 onDelete: async ({ text }) => {
                     await primaryManager.deletePresetInteractive(text);
                 },
+                onBulkDelete: async (items) => {
+                    await primaryManager.deletePresetsInteractive(items.map((item) => item.text));
+                },
+                bulkDeleteButtonTitle: primaryManager.isAdvancedFormatting() ? t`Delete template` : t`Delete preset`,
+                selectAllTitle: t`Select all`,
+                selectedLabel: t`Selected`,
                 select2Options: {
                     width: '100%',
                 },
@@ -887,8 +894,9 @@ class PresetManager {
      * @param {object} [settings] Settings to save as the preset. If not provided, uses the current preset settings.
      * @param {object} [options] Options for saving the preset
      * @param {boolean} [options.skipUpdate=false] If true, skips updating the preset list after saving.
+     * @param {boolean} [options.select=true] If true, the freshly saved preset becomes the active one when the list updates.
      */
-    async savePreset(name, settings, { skipUpdate = false } = {}) {
+    async savePreset(name, settings, { skipUpdate = false, select = true } = {}) {
         if (this.apiId === 'instruct' && settings) {
             await checkForSystemPromptInInstructTemplate(name, settings);
         }
@@ -919,7 +927,7 @@ class PresetManager {
             return;
         }
 
-        this.updateList(name, preset);
+        this.updateList(name, preset, { select });
     }
 
     /**
@@ -1312,6 +1320,7 @@ class PresetManager {
     /**
      * Deletes a preset by name. If not provided, deletes the currently selected preset.
      * @param {string} [name] Name of the preset to delete.
+     * @returns {Promise<boolean|undefined>} Whether the server accepted the delete
      */
     async deletePreset(name) {
         // Raw underlying arrays — see `updateList` for why writers
@@ -1324,6 +1333,23 @@ class PresetManager {
         if (value == 'gui') {
             toastr.info(t`Cannot delete GUI preset`);
             return;
+        }
+
+        // switch in UI only when deleting currently selected preset
+        const switchPresets = !name || areLookupNamesEqual(this.getSelectedPresetName(), nameToDelete);
+
+        // Ask the server first. Removing the row optimistically used to leave
+        // the picker disagreeing with the server whenever the request was
+        // rejected: the preset vanished from the list but still existed on
+        // disk, and no undo was offered because the caller saw a failure.
+        const response = await fetch('/api/presets/delete', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ name: nameToDelete, apiId: this.apiId }),
+        });
+
+        if (!response.ok) {
+            return false;
         }
 
         if (this.isKeyedApi()) {
@@ -1339,23 +1365,16 @@ class PresetManager {
 
         this.removeDeletedPresetFromGroups(nameToDelete);
 
-        // switch in UI only when deleting currently selected preset
-        const switchPresets = !name || areLookupNamesEqual(this.getSelectedPresetName(), nameToDelete);
-
         if (Object.keys(preset_names).length && switchPresets) {
             const nextPresetName = Object.keys(preset_names)[0];
             const newValue = preset_names[nextPresetName];
-            $(this.select).find(`option[value="${newValue}"]`).attr('selected', 'true');
-            $(this.select).trigger('change');
+            // `.val()` updates the select's selectedness; setting the
+            // `selected` attribute alone can leave the picker and the applied
+            // runtime settings disagreeing about which preset is active.
+            $(this.select).val(String(newValue)).trigger('change');
         }
 
-        const response = await fetch('/api/presets/delete', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({ name: nameToDelete, apiId: this.apiId }),
-        });
-
-        return response.ok;
+        return true;
     }
 
     /**
@@ -1412,6 +1431,98 @@ class PresetManager {
         requestAsyncDiffForNextSettingsSave();
         saveSettingsDebounced();
         return result;
+    }
+
+    /**
+     * Prompts for confirmation once, deletes every named preset, and wires one
+     * merged undo for the whole batch.
+     * @param {string[]} names Preset names
+     * @returns {Promise<boolean>} Whether anything was deleted
+     */
+    async deletePresetsInteractive(names) {
+        const resolvedNames = Array.from(new Set((Array.isArray(names) ? names : [])
+            .map((name) => this.resolvePresetName(name))
+            .filter((name) => this.canDeletePreset(name))));
+        if (!resolvedNames.length) {
+            return false;
+        }
+
+        const headerText = !this.isAdvancedFormatting() ? t`Delete the selected presets?` : t`Delete the selected templates?`;
+        const confirm = await Popup.show.confirm(headerText, `${buildBulkDeleteConfirmBody(resolvedNames)}<br><br>${t`This action is irreversible!`}`);
+        if (!confirm) {
+            return false;
+        }
+
+        /** @type {Array<{ resolvedName: string, presetSnapshot: any, extensions: any }>} */
+        const removed = [];
+        /** @type {string[]} */
+        const failedNames = [];
+        for (const resolvedName of resolvedNames) {
+            const presetSnapshot = this.getStoredPreset(resolvedName);
+            const extensions = this.readPresetExtensionField({ name: resolvedName, path: '' });
+            let result = false;
+            try {
+                result = await this.deletePreset(resolvedName);
+            } catch (error) {
+                console.error('Failed to delete preset', resolvedName, error);
+                result = false;
+            }
+            if (result) {
+                removed.push({ resolvedName, presetSnapshot, extensions });
+            } else {
+                failedNames.push(resolvedName);
+            }
+        }
+
+        // One failed request must not hide the fact that the others went
+        // through: report the failures by name, and still offer the merged
+        // undo for everything that was actually deleted.
+        if (failedNames.length) {
+            const failedToast = !this.isAdvancedFormatting() ? t`Some presets could not be deleted` : t`Some templates could not be deleted`;
+            toastr.warning(failedNames.join(', '), failedToast);
+        }
+
+        if (!removed.length) {
+            const warningToast = !this.isAdvancedFormatting() ? t`Preset was not deleted from server` : t`Template was not deleted from server`;
+            toastr.warning(warningToast);
+            requestAsyncDiffForNextSettingsSave();
+            saveSettingsDebounced();
+            return false;
+        }
+
+        const successToast = !this.isAdvancedFormatting() ? t`Presets deleted` : t`Templates deleted`;
+        const restoreErrorToast = !this.isAdvancedFormatting() ? t`Failed to restore preset.` : t`Failed to restore template.`;
+
+        showUndoToast({
+            message: successToast,
+            onUndo: async () => {
+                for (const { resolvedName, presetSnapshot } of removed) {
+                    if (!presetSnapshot) {
+                        continue;
+                    }
+                    try {
+                        // `select: false` keeps the preset that is active now
+                        // active. Letting each restored preset claim the
+                        // selection would leave the last one restored active,
+                        // silently switching the user's settings.
+                        await this.savePreset(resolvedName, structuredClone(presetSnapshot), { select: false });
+                    } catch (error) {
+                        console.error('Failed to restore deleted preset', error);
+                        toastr.error(restoreErrorToast);
+                    }
+                }
+            },
+            onCommit: async () => {
+                for (const { resolvedName, extensions } of removed) {
+                    await eventSource.emit(event_types.PRESET_DELETED, { apiId: this.apiId, name: resolvedName });
+                    await maybeDeleteLinkedLorebookForPresetDeletion({ presetName: resolvedName, extensions });
+                }
+            },
+        });
+
+        requestAsyncDiffForNextSettingsSave();
+        saveSettingsDebounced();
+        return true;
     }
 
     /**
