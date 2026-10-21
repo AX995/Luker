@@ -95,6 +95,16 @@ describe('resolveWorldInfo', () => {
         expect(captured.opts.fallbackToCurrentChat).toBe(true);
     });
 
+    test('forwards postActivationHook to the resolver', async () => {
+        const hook = (payload) => payload;
+        let captured = null;
+        await resolveWorldInfo({
+            worldInfoSource: 'chat',
+            postActivationHook: hook,
+        }, { worldInfoResolver: async (msgs, opts) => { captured = opts; return mockWi; } });
+        expect(captured.postActivationHook).toBe(hook);
+    });
+
     test('source=\'custom\' uses customWorldInfoMessages', async () => {
         let captured = null;
         await resolveWorldInfo({

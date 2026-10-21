@@ -249,6 +249,7 @@ export function resolveProfile(apiPresetName, {
  * @param {object|null} [args.runtimeWorldInfo]
  * @param {boolean} [args.forceWorldInfoResimulate]
  * @param {string} [args.worldInfoType]
+ * @param {function} [args.postActivationHook] - transform the activated snapshot before injection
  * @param {object} [options]
  * @param {function} [options.worldInfoResolver] - resolveWorldInfoForMessages-shaped function (msgs, opts) => snapshot
  * @returns {Promise<object>}
@@ -260,6 +261,7 @@ export async function resolveWorldInfo({
     runtimeWorldInfo = null,
     forceWorldInfoResimulate = false,
     worldInfoType = 'quiet',
+    postActivationHook = null,
 } = {}, {
     worldInfoResolver = null,
 } = {}) {
@@ -307,6 +309,7 @@ export async function resolveWorldInfo({
     return await worldInfoResolver(messages, {
         type: String(worldInfoType || 'quiet'),
         fallbackToCurrentChat,
+        postActivationHook,
     });
 }
 
@@ -919,6 +922,7 @@ const RESPONSE_MODES = { TEXT: 'text', TOOL: 'tool', JSON: 'json' };
  * @param {object|null} [params.runtimeWorldInfo]
  * @param {boolean} [params.forceWorldInfoResimulate]
  * @param {string}  [params.worldInfoType='quiet']
+ * @param {function} [params.postActivationHook] - transform the activated snapshot before injection
  * @param {string}  [params.llmPresetName]
  * @param {string}  [params.apiPresetName]
  * @param {Array|null} [params.tools]
@@ -948,6 +952,7 @@ export async function generateTask({
     runtimeWorldInfo = null,
     forceWorldInfoResimulate = false,
     worldInfoType = 'quiet',
+    postActivationHook = null,
     llmPresetName = '',
     apiPresetName = '',
     tools = null,
@@ -994,6 +999,7 @@ export async function generateTask({
         runtimeWorldInfo,
         forceWorldInfoResimulate,
         worldInfoType,
+        postActivationHook,
     }, { worldInfoResolver });
 
     // ── 4.5 Macro substitution on caller-supplied task messages ──
@@ -1098,6 +1104,7 @@ export function generateTaskStream({
     runtimeWorldInfo = null,
     forceWorldInfoResimulate = false,
     worldInfoType = 'quiet',
+    postActivationHook = null,
     llmPresetName = '',
     apiPresetName = '',
     tools = null,
@@ -1158,6 +1165,7 @@ export function generateTaskStream({
                 runtimeWorldInfo,
                 forceWorldInfoResimulate,
                 worldInfoType,
+                postActivationHook,
             }, { worldInfoResolver });
 
             // ── 4.5 Macro substitution ──

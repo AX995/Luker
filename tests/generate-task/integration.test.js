@@ -30,6 +30,28 @@ describe('generateTask end-to-end', () => {
         expect(result.reasoning).toBeNull();
     });
 
+    test('forwards postActivationHook to the world-info resolver', async () => {
+        let capturedOptions = null;
+        const hook = (payload) => payload;
+        const fakeOpenAI = async () => ({
+            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        });
+        await generateTask({
+            taskMessages: [{ role: 'user', content: 'hi' }],
+            worldInfoSource: 'chat',
+            postActivationHook: hook,
+        }, {
+            _injected: baseInjected({
+                worldInfoResolver: async (messages, options) => {
+                    capturedOptions = options;
+                    return {};
+                },
+                senders: { sendOpenAIRequest: fakeOpenAI },
+            }),
+        });
+        expect(capturedOptions.postActivationHook).toBe(hook);
+    });
+
     test('applies the plugin output-direction regex to assistantText, never to toolCalls', async () => {
         const applied = [];
         const fakeOpenAI = async () => ({
@@ -396,6 +418,31 @@ describe('generateTaskStream — openai happy path', () => {
         }, { _injected: baseInjected({ senders: { sendOpenAIRequest: fakeStreamingOpenAI } }) });
         await result;
         expect(capturedPresetName).toBe('P1');
+    });
+
+    test('forwards postActivationHook to the world-info resolver', async () => {
+        let capturedOptions = null;
+        const hook = (payload) => payload;
+        const fakeStreamingOpenAI = async () => {
+            return async function* gen() {
+                yield { text: 'ok', toolCalls: [], state: { reasoning: '', signature: '', images: [], toolSignatures: {} } };
+            };
+        };
+        const { result } = generateTaskStream({
+            taskMessages: [{ role: 'user', content: 'hi' }],
+            worldInfoSource: 'chat',
+            postActivationHook: hook,
+        }, {
+            _injected: baseInjected({
+                worldInfoResolver: async (messages, options) => {
+                    capturedOptions = options;
+                    return {};
+                },
+                senders: { sendOpenAIRequest: fakeStreamingOpenAI },
+            }),
+        });
+        await result;
+        expect(capturedOptions.postActivationHook).toBe(hook);
     });
 
     test('jsonSchema mode parses streamed content into result.jsonData', async () => {
