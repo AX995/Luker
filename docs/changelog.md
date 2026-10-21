@@ -58,6 +58,10 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Added a tray menu on Windows and Linux with commands to show the window, open the data directory, and quit the app, and an **Open data directory** item in the macOS application menu.
 - Added Linux packages: an AppImage, a `.deb`, and an `.rpm` for x64 and arm64, published alongside the macOS and Windows installers. Closing the window quits the app on Linux, and the update prompt picks the package that matches how the app was installed.
 
+### Client Apps
+
+- Third-party links in the desktop, Android, and HarmonyOS apps now open in the system browser instead of replacing the Luker page, with an **Open external links in the system browser** toggle in user settings. Popups that request window features open as an in-app floating window, so third-party authorization flows keep working.
+
 ### Memory Graph
 
 - Fixed Memory Graph schema iteration failing to apply valid node-type edits because the read tool exposed fields the set tool's schema does not accept.
