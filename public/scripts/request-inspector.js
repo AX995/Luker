@@ -502,6 +502,12 @@ function buildToolsSectionHtml(wr, q) {
         const countHtml = paramCount
             ? `<span class="ri-tool-count">${paramCount} ${escapeHtml(paramCount === 1 ? t`param` : t`params`)}</span>`
             : '';
+        // The summary keeps a one-line preview; the expanded body carries the
+        // full description in a height-capped scroll area so long tool
+        // descriptions are readable without stretching the row.
+        const fullDescHtml = tool.description
+            ? `<div class="ri-tool-desc-full">${highlightHtml(tool.description, q)}</div>`
+            : '';
 
         let bodyHtml;
         if (paramRows.length) {
@@ -510,7 +516,10 @@ function buildToolsSectionHtml(wr, q) {
                 const req = r.required
                     ? ` <span class="ri-param-req" title="${escapeHtml(t`Required`)}">*</span>`
                     : '';
-                return `<tr><td class="ri-param-name"${indent}>${highlightHtml(r.name, q)}${req}</td><td class="ri-param-type">${escapeHtml(r.type)}</td><td class="ri-param-desc"><div class="ri-param-desc-text">${highlightHtml(r.description, q)}</div></td></tr>`;
+                const descBody = r.description
+                    ? highlightHtml(r.description, q)
+                    : '<span class="ri-param-desc-empty">\u2014</span>';
+                return `<tr><td class="ri-param-name"${indent}>${highlightHtml(r.name, q)}${req}</td><td class="ri-param-type">${escapeHtml(r.type)}</td><td class="ri-param-desc"><div class="ri-param-desc-text">${descBody}</div></td></tr>`;
             }).join('\n');
             bodyHtml = `<div class="ri-tool-schema"><table class="ri-params"><thead><tr><th>${t`Parameter`}</th><th>${t`Type`}</th><th>${t`Description`}</th></tr></thead><tbody>${trs}</tbody></table></div>`;
         } else {
@@ -524,6 +533,7 @@ function buildToolsSectionHtml(wr, q) {
  ${descHtml}
  ${countHtml}
  </summary>
+ ${fullDescHtml}
  ${bodyHtml}
  </details>`;
     }).join('\n');

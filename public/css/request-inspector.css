@@ -388,6 +388,22 @@
     color: var(--SmartThemeQuoteColor, #4fc3f7);
 }
 
+/* Tool summaries put the name and param count on the first line and give the
+   description the full second line on narrow screens, so a long tool name
+   cannot squeeze the description to zero width. */
+@media (max-width: 600px) {
+    .ri-tool .ri-msg-summary {
+        flex-wrap: wrap;
+    }
+
+    .ri-tool .ri-tool-name { order: 1; }
+    .ri-tool .ri-tool-count { order: 2; }
+    .ri-tool .ri-tool-desc {
+        order: 3;
+        flex: 1 0 100%;
+    }
+}
+
 .ri-tool-desc {
     flex: 1;
     min-width: 0;
@@ -396,6 +412,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Full tool description in the expanded body. Nine lines at 1.5 line-height
+   keeps a long description in a compact scrollable block; the summary keeps
+   only the one-line preview. */
+.ri-tool-desc-full {
+    max-height: 9em;
+    overflow-y: auto;
+    padding: 6px 10px;
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor, #444) 30%, transparent);
+    font-size: 0.85em;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    opacity: 0.8;
 }
 
 .ri-tool-count {
@@ -480,6 +511,10 @@
 .ri-param-desc {
     opacity: 0.7;
     word-break: break-word;
+}
+
+.ri-param-desc-empty {
+    opacity: 0.45;
 }
 
 /* Long descriptions scroll inside the cell instead of stretching the row.

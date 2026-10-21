@@ -20,6 +20,8 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Fixed the Inspector showing the stored provider key instead of the key that actually went on the wire when a plugin overrode the auth header through custom include headers.
 - Added a **Tools** section to the request detail that lists the tools sent to the model, each expanding into a parameter table. Tool definitions no longer appear under **Other Params**.
 - Long tool parameter descriptions in the **Tools** section scroll inside a compact block instead of stretching the parameter table.
+- Fixed long tool names hiding the tool description in the **Tools** summary; narrow screens place the description on its own line, and the expanded card shows the full text in a scrollable block.
+- Parameters without a description show a dash instead of a blank cell.
 - Fixed streamed reasoning details rendering one row per fragment with empty bodies in the request and response views; fragments now merge into complete entries showing their text, summary, and signature, and the duplicated plain reasoning block is dropped.
 
 ### Connections & Models
