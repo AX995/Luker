@@ -8,7 +8,7 @@ metadata:
 
 # draft-writer-style-zh
 
-This skill is the main-agent's draft-writing style guide for the default director RP profile. Extracted verbatim from `director-default-prompt.js` — specifically the Draft step (#3) of the Workflow section. The same content lives inline in the main agent's systemPrompt; this shared skill exists so that draft-time discipline is a load-bearing module that survives main-prompt overrides.
+This skill is the main-agent's draft-writing style guide for the default director RP profile. The same content lives inline in the main agent's systemPrompt; this shared skill exists so that draft-time discipline is a load-bearing module that survives main-prompt overrides.
 
 ## Draft step — the writer is the main agent
 

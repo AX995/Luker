@@ -8,7 +8,7 @@ metadata:
 
 # director-character-voice-zh
 
-This skill is the cross-cutting character-voice rule set for the default director RP profile. It is extracted verbatim from `director-default-prompt.js` (main agent draft step) and `director-defaults.js` (voice_critic systemPrompt). The same patterns are enforced inline in voice_critic; this shared skill makes the core principle visible to all agents (main + every scout / brainstormer / critic / curator) so that voice consistency is a shared baseline, not just an after-the-fact critic's lens.
+This skill is the cross-cutting character-voice rule set for the default director RP profile. The same patterns are enforced inline in voice_critic; this shared skill makes the core principle visible to all agents (main + every scout / brainstormer / critic / curator) so that voice consistency is a shared baseline, not just an after-the-fact critic's lens.
 
 ## Core principle — living being first, archetype second
 

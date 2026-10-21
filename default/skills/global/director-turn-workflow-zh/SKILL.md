@@ -8,7 +8,7 @@ metadata:
 
 # director-turn-workflow-zh
 
-This skill is the director main-agent's 7-step per-turn workflow for the default RP profile. Extracted verbatim from `director-default-prompt.js`. The same workflow is enforced inline in the main agent's systemPrompt; this shared skill exists so that the main agent can carry the workflow forward if the systemPrompt is overridden, and so that sub-agents understand the parent's turn shape (and dispatch order) when synthesizing their outputs.
+This skill is the director main-agent's 7-step per-turn workflow for the default RP profile. The same workflow is enforced inline in the main agent's systemPrompt; this shared skill exists so that the main agent can carry the workflow forward if the systemPrompt is overridden, and so that sub-agents understand the parent's turn shape (and dispatch order) when synthesizing their outputs.
 
 ## Stage boundary discipline (read before dispatching)
 

@@ -9,8 +9,6 @@ metadata:
 
 适用范围: 本规范**只**约束 event.summary 字段的最终字符串。其他字段 (character_sheet 的 traits/identity/aliases、location_state 的 state/controller、thread 的 note 等) 不在此规范范围内。
 
-本规范与 `public/scripts/extensions/memory-graph/default-prompts.js` 的 `EVENT_SUMMARY_RULES_BODY` 常量是同一份内容; 当二者出现差异时, 以 `default-prompts.js` 为准。
-
 ## 0. 核心定位
 
 event.summary 是**剧情记录**——一段足以让没看过原文的 RP 模型重建剧情线、关系状态、未结线索的自然语言**散文段落**, 配合三段可选的结构化 section 索引出无法从 prose 推断的关键信息。
@@ -461,5 +459,3 @@ S1: <句子原文>
 - **Leaf event** (depth=0): 输出 §1 的 `prose body + 可选 section` 格式
 - **Rollup event** (depth≥1): 输出更紧凑的 outline 格式 (`时间: ... 至 ...` 头部 + 数字编号条目), 因为 rollup 进入持久注入路径, 需要密度高、易扫读
 - **二者共享的**: §1.1 之外的全部内容 — §2 各类颗粒度 / 心理分类 / 黑名单扫描 / 单句删除测试 的**精神**完全适用于 rollup 的每一条 outline。"用 outline 形式呈现" ≠ "绕过黑名单和颗粒度规则"。
-
-具体 rollup 输出格式 + depth-aware 抽象规则见 `default-prompts.js` 的 `DEFAULT_EVENT_COMPRESS_INSTRUCTION` 常量, 此处不重复。

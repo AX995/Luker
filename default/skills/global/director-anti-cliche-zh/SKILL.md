@@ -8,7 +8,7 @@ metadata:
 
 # director-anti-cliche-zh
 
-This skill is the consolidated anti-cliche reference for the default director RP profile. The rules below are extracted verbatim from `director-default-prompt.js` (main-agent draft step) and `director-defaults.js` (voice_critic + EVENT_SUMMARY_RULES_BODY constant). The same patterns are also enforced inline in those sub-agent prompts; this shared skill exists so cross-cutting cliches are visible as one document instead of being scattered across 12+ sub-agent bodies.
+This skill is the consolidated anti-cliche reference for the default director RP profile. The same patterns are also enforced inline in the sub-agent prompts; this shared skill exists so cross-cutting cliches are visible as one document instead of being scattered across the sub-agent bodies.
 
 ## Data-person prose — the single most common LLM RP failure mode
 

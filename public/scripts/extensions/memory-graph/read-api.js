@@ -211,6 +211,14 @@ function freezeEdgeSummaryView(summary) {
 
 function freezeSchemaSpecView(spec) {
     const compressionMode = String(spec?.compression?.mode || spec?.compressionMode || 'none');
+    // Effective cadence, not the raw stored value: force-update types extract
+    // every pass regardless of what is stored, and an absent cadence behaves
+    // as 1. Mirrors computeActiveExtractionTypes so readers see what the
+    // scheduler actually does.
+    const rawCadence = Number(spec?.extractEveryN);
+    const extractEveryN = spec?.forceUpdate
+        ? 1
+        : Math.max(1, Math.floor(Number.isFinite(rawCadence) ? rawCadence : 1));
     return Object.freeze({
         // Schema items use `id` as the type identifier (e.g. 'event',
         // 'character_sheet'); view-side field name is `type`.
@@ -226,6 +234,7 @@ function freezeSchemaSpecView(spec) {
             .map(c => String(c || ''))
             .filter(Boolean)),
         forceUpdate: Boolean(spec?.forceUpdate),
+        extractEveryN,
         alwaysInject: Boolean(spec?.alwaysInject),
         editable: Boolean(spec?.editable),
         compressionMode,

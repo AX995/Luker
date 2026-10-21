@@ -484,7 +484,7 @@ describe('Layer A: data access (spec §4.2)', () => {
         expect(result[0]).toEqual({ from: 'evt_leaf_a', to: 'char_alice', type: 'related' });
     });
 
-    test('getSchema() returns SchemaView with types: SchemaSpecView[] having all 9 contract fields', () => {
+    test('getSchema() returns SchemaView with types: SchemaSpecView[] having all 10 contract fields', () => {
         const schema = api.getSchema();
         expect(schema).toHaveProperty('types');
         expect(Array.isArray(schema.types)).toBe(true);
@@ -492,19 +492,24 @@ describe('Layer A: data access (spec §4.2)', () => {
         expect(event).toBeTruthy();
         // Spec §4.1 SchemaSpecView fields:
         const requiredFields = ['type', 'tableName', 'tableColumns', 'requiredColumns',
-            'primaryKeyColumns', 'forceUpdate', 'alwaysInject', 'editable', 'compressionMode'];
+            'primaryKeyColumns', 'forceUpdate', 'extractEveryN', 'alwaysInject', 'editable', 'compressionMode'];
         for (const f of requiredFields) {
             expect(Object.prototype.hasOwnProperty.call(event, f)).toBe(true);
         }
         expect(event.compressionMode).toBe('hierarchical');
         expect(event.tableName).toBe('event_table');
         expect(event.forceUpdate).toBe(true);
+        // Force-update types extract every pass, so the reported cadence is 1
+        // even when the stored schema entry carries no extractEveryN key.
+        expect(event.extractEveryN).toBe(1);
         expect(event.alwaysInject).toBe(true);
         expect(event.editable).toBe(false);
         const char = schema.types.find(t => t.type === 'character_sheet');
         expect(char.compressionMode).toBe('none');
         expect(char.editable).toBe(true);
         expect(char.alwaysInject).toBe(false);
+        // A non-force type with no stored cadence reports the effective 1.
+        expect(char.extractEveryN).toBe(1);
     });
 });
 

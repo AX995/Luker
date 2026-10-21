@@ -8,7 +8,7 @@ metadata:
 
 # director-no-meta-zh
 
-This skill is the cross-cutting anti-meta-narration rule set for the default director RP profile. It is extracted verbatim from `director-default-prompt.js` (main agent draft step) and `director-defaults.js` (voice_critic Hard-fail scan). The same patterns are enforced inline in voice_critic; this shared skill makes the rules a baseline for all agents so that meta-narration is caught at write-time, not only post-draft.
+This skill is the cross-cutting anti-meta-narration rule set for the default director RP profile. The same patterns are enforced inline in voice_critic; this shared skill makes the rules a baseline for all agents so that meta-narration is caught at write-time, not only post-draft.
 
 ## Principle
 

@@ -52,6 +52,8 @@ In short: the AI always sees the "big picture" (top-level summaries), and specif
 
 You can throttle extraction with the **Extraction Interval** setting — for example, `2` means extraction runs every 2 AI replies, halving the LLM cost.
 
+**Concurrent extraction** runs a round as a node stage and an edge stage instead of a single request. The node stage sends one request per active node type, all in flight at once, each carrying only that type's rules and no link tools. The edge stage then sends one request carrying the round's own node list, so it can link the nodes the node stage just created. The mode raises a round's request count to one per active type plus one for the edge stage; in crawl mode each request crawls on its own and spends its own crawl budget, and retry notifications multiply with the request count. It is off by default. Turn it on when quality and speed matter more than token cost.
+
 ### Smart recall
 
 When you send a message, Memory Graph looks at the conversation context and recalls the most relevant nodes from accumulated memory, then injects them into the prompt for the AI to use.
@@ -241,8 +243,8 @@ For example, add a `magic_system` type with fields like `name / source / restric
 
 Each type also carries two extraction-control fields:
 
-- **Extraction Instructions** — a free-form text block appended to the extraction system prompt **only when this type is active for the current round**. Put type-specific rules here ("at most one event per batch", "always fill aliases"), not in the base prompt. Empty string = no type-specific appendix.
-- **Extract Every N Floors** — cadence control. `1` (default) means the type participates in every extraction pass. Larger values (`2`, `3`, `5`, ...) make the type participate only when `currentSeq % N == 0`, so slow-changing tables like `location_state` can update less frequently and save LLM calls. When a type is inactive for the current pass, its create/edit/delete tools are not exposed to the LLM and its instructions are not in the prompt — the model literally cannot output that table this round.
+- **Extraction Instructions** — a free-form text block added to the extraction request **only when this type is active for the current round**. Put type-specific rules here ("at most one event per batch", "always fill aliases"); the **Extraction Template** inserts them at its <code v-pre>{{nodes}}</code> marker. Empty string = no type-specific appendix.
+- **Extract Every N Floors** — cadence control. `1` (default) means the type participates in every extraction pass. Larger values (`2`, `3`, `5`, ...) make the type participate only when `currentSeq % N == 0`, so slow-changing tables like `location_state` can update less frequently and save LLM calls. Force-update types ignore this field and participate every pass. When a type is inactive for the current pass, its create/edit/delete tools are not exposed to the LLM and its instructions are not in the prompt — the model literally cannot output that table this round.
 
 ### I want certain memories *always* in the prompt (not waiting for recall)
 

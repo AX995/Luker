@@ -273,6 +273,10 @@ function buildAdvancedTabHtml(deps) {
                     <option value="crawl">${escapeHtml(i18n('Crawl (LLM-explored local slice)'))}</option>
                 </select>
             </label>
+            <label class="checkbox_label">
+                <input id="luker_rpg_memory_advanced_extract_concurrent" type="checkbox" />
+                ${escapeHtml(i18n('Concurrent extraction'))}${fh('About Concurrent extraction', 'Concurrent extraction help body')}
+            </label>
             <label>${escapeHtml(i18n('Crawl max rounds'))}${fh('About Crawl max rounds', 'Crawl max rounds help body')}
                 <input id="luker_rpg_memory_advanced_extract_crawl_rounds" class="text_pole" type="number" min="1" max="5" step="1" />
             </label>
@@ -286,8 +290,11 @@ function buildAdvancedTabHtml(deps) {
             <label>${escapeHtml(i18n('Extraction Crawl Prompt'))}${fh('About Extraction Crawl Prompt', 'Extraction Crawl Prompt help body')}
                 <textarea id="luker_rpg_memory_advanced_extract_crawl_system_prompt" class="text_pole textarea_compact" rows="8"></textarea>
             </label>
-            <label>${escapeHtml(i18n('Extract Table Fill Prompt'))}${fh('About Extract Table Fill Prompt', 'Extract Table Fill Prompt help body')}
+            <label>${escapeHtml(i18n('Extraction Template'))}${fh('About Extraction Template', 'Extraction Template help body')}
                 <textarea id="luker_rpg_memory_advanced_extract_system_prompt" class="text_pole textarea_compact" rows="8"></textarea>
+            </label>
+            <label>${escapeHtml(i18n('Edge Rules'))}${fh('About Edge Rules', 'Edge Rules help body')}
+                <textarea id="luker_rpg_memory_advanced_extract_edge_rules" class="text_pole textarea_compact" rows="8"></textarea>
             </label>
             <label id="luker_rpg_memory_advanced_recall_route_prompt_row">${escapeHtml(i18n('Recall Stage 1 Prompt (Route/Drill)'))}${fh('About Recall Stage 1 Prompt', 'Recall Stage 1 Prompt help body')}
                 <textarea id="luker_rpg_memory_advanced_recall_route_prompt" class="text_pole textarea_compact" rows="8"></textarea>

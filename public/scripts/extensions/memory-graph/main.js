@@ -29,10 +29,12 @@ import { i18n, i18nFormat, registerLocaleData } from './i18n.js';
 import {
     DEFAULT_PER_TYPE_INSTRUCTIONS,
     computeActiveExtractionTypes,
-    assembleExtractionSystemPrompt,
-    buildPerTypeRulesBlock,
+    buildExtractionNodesBlock,
+    buildExtractionEdgesBlock,
+    buildRoundNodesSection,
 } from './extraction-schedule.js';
-export { DEFAULT_PER_TYPE_INSTRUCTIONS, computeActiveExtractionTypes, assembleExtractionSystemPrompt, buildPerTypeRulesBlock };
+import { renderExtractionTemplate, resolveExtractionTemplate } from './prompt-units.js';
+export { DEFAULT_PER_TYPE_INSTRUCTIONS, computeActiveExtractionTypes };
 import {
     configure as configureCharacterOverrides,
     getEffectiveSettings,
@@ -58,7 +60,8 @@ import { openSchemaIterationStudio } from './schema-iteration/studio.js';
 import { DEFAULT_SCHEMA_ITER_SYSTEM_PROMPT } from './schema-iteration/system-prompt.js';
 import { openGraphIterationStudio } from './graph-iteration/studio.js';
 import {
-    DEFAULT_EXTRACT_SYSTEM_PROMPT,
+    DEFAULT_EXTRACT_EDGE_RULES,
+    DEFAULT_EXTRACT_TEMPLATE,
     DEFAULT_EVENT_COMPRESS_INSTRUCTION,
     DEFAULT_CRAWL_SYSTEM_PROMPT,
 } from './default-prompts.js';
@@ -202,7 +205,6 @@ const defaultNodeTypeSchema = [
         level: LEVEL.SEMANTIC,
         extractHint: DEFAULT_EVENT_EXTRACT_HINT,
         extractionInstructions: DEFAULT_PER_TYPE_INSTRUCTIONS.event,
-        extractEveryN: 1,
         keywords: ['battle', 'reveal', 'deal', 'betrayal', 'event', 'outcome'],
         alwaysInject: true,
         latestOnly: false,
@@ -320,8 +322,6 @@ const defaultNodeTypeSchema = [
     },
 ];
 
-export { DEFAULT_EXTRACT_SYSTEM_PROMPT };
-
 const DEFAULT_RECALL_ROUTE_SYSTEM_PROMPT = [
     'You are a memory recall planner focused on relevance, continuity, and efficiency.',
     'You must output exactly one short <thought>...</thought> before tool call to explain your plan.',
@@ -415,7 +415,7 @@ const CANONICAL_EXTRACT_RELATION_TYPES = [
 const CANONICAL_EXTRACT_RELATION_TYPES_TEXT = CANONICAL_EXTRACT_RELATION_TYPES.join(', ');
 
 
-const defaultSettings = {
+export const defaultSettings = {
     enabled: false,
     autoExtractionEnabled: true,
     autoCompressionEnabled: true,
@@ -441,7 +441,6 @@ const defaultSettings = {
     extractPresetName: '',
     requestApiPresetName: '',
     requestLlmPresetName: '',
-    extractSystemPrompt: DEFAULT_EXTRACT_SYSTEM_PROMPT,
     extractCrawlSystemPrompt: DEFAULT_CRAWL_SYSTEM_PROMPT,
     schemaIterSystemPrompt: DEFAULT_SCHEMA_ITER_SYSTEM_PROMPT,
     extractBatchTurns: 1,
@@ -673,7 +672,13 @@ export function normalizeNodeTypeSchema(schema) {
                 level: String(item.level || LEVEL.SEMANTIC),
                 extractHint: String(item.extractHint || '').trim(),
                 extractionInstructions: String(item.extractionInstructions ?? DEFAULT_PER_TYPE_INSTRUCTIONS[rawId] ?? '').trim(),
-                extractEveryN: Math.max(1, Math.floor(Number.isFinite(Number(item.extractEveryN)) ? Number(item.extractEveryN) : 1) || 1),
+                // Force-update types run on every pass, so the cadence is
+                // meaningless for them: never synthesize a default. A value
+                // already persisted on such a type is carried through
+                // untouched and simply ignored by the cadence.
+                ...(forceUpdate
+                    ? (item.extractEveryN === undefined ? {} : { extractEveryN: item.extractEveryN })
+                    : { extractEveryN: Math.max(1, Math.floor(Number.isFinite(Number(item.extractEveryN)) ? Number(item.extractEveryN) : 1) || 1) }),
                 keywords: Array.isArray(item.keywords) ? item.keywords.map(x => String(x || '').trim()).filter(Boolean) : [],
                 columnHints,
                 requiredColumns,
@@ -876,7 +881,6 @@ function ensureSettings() {
     extension_settings[MODULE_NAME].extractCrawlMaxRounds = Math.max(1, Math.min(5, Math.floor(Number(extension_settings[MODULE_NAME].extractCrawlMaxRounds) || defaultSettings.extractCrawlMaxRounds)));
     extension_settings[MODULE_NAME].extractCrawlCandidateLimit = Math.max(10, Math.min(100, Math.floor(Number(extension_settings[MODULE_NAME].extractCrawlCandidateLimit) || defaultSettings.extractCrawlCandidateLimit)));
     extension_settings[MODULE_NAME].extractCrawlMaxReads = Math.max(1, Math.min(30, Math.floor(Number(extension_settings[MODULE_NAME].extractCrawlMaxReads) || defaultSettings.extractCrawlMaxReads)));
-    extension_settings[MODULE_NAME].extractSystemPrompt = String(extension_settings[MODULE_NAME].extractSystemPrompt || '').trim() || DEFAULT_EXTRACT_SYSTEM_PROMPT;
     extension_settings[MODULE_NAME].extractCrawlSystemPrompt = String(extension_settings[MODULE_NAME].extractCrawlSystemPrompt || '').trim() || DEFAULT_CRAWL_SYSTEM_PROMPT;
     extension_settings[MODULE_NAME].schemaIterSystemPrompt = String(extension_settings[MODULE_NAME].schemaIterSystemPrompt || '').trim() || DEFAULT_SCHEMA_ITER_SYSTEM_PROMPT;
     extension_settings[MODULE_NAME].recallRouteSystemPrompt = String(extension_settings[MODULE_NAME].recallRouteSystemPrompt || '').trim() || DEFAULT_RECALL_ROUTE_SYSTEM_PROMPT;
@@ -933,7 +937,7 @@ export function getSettings() {
     return extension_settings[MODULE_NAME];
 }
 
-function normalizeAdvancedSettings(source = null, fallbackSource = null) {
+export function normalizeAdvancedSettings(source = null, fallbackSource = null) {
     const base = fallbackSource && typeof fallbackSource === 'object' ? fallbackSource : defaultSettings;
     const input = source && typeof source === 'object' ? source : {};
     const extractMode = ['oneshot', 'crawl'].includes(String(input.extractMode || '').trim().toLowerCase())
@@ -994,10 +998,16 @@ function normalizeAdvancedSettings(source = null, fallbackSource = null) {
             Math.floor(Number.isFinite(rpmLimitRaw) ? rpmLimitRaw : Number(base.rpmLimit ?? defaultSettings.rpmLimit)),
         ),
         extractMode,
+        extractConcurrent: typeof input.extractConcurrent === 'boolean' ? input.extractConcurrent : (typeof base.extractConcurrent === 'boolean' ? base.extractConcurrent : false),
         extractCrawlMaxRounds: Math.max(1, Math.min(5, Math.floor(Number.isFinite(extractCrawlMaxRoundsRaw) ? extractCrawlMaxRoundsRaw : Number(base.extractCrawlMaxRounds ?? defaultSettings.extractCrawlMaxRounds)))),
         extractCrawlCandidateLimit: Math.max(10, Math.min(100, Math.floor(Number.isFinite(extractCrawlCandidateLimitRaw) ? extractCrawlCandidateLimitRaw : Number(base.extractCrawlCandidateLimit ?? defaultSettings.extractCrawlCandidateLimit)))),
         extractCrawlMaxReads: Math.max(1, Math.min(30, Math.floor(Number.isFinite(extractCrawlMaxReadsRaw) ? extractCrawlMaxReadsRaw : Number(base.extractCrawlMaxReads ?? defaultSettings.extractCrawlMaxReads)))),
-        extractSystemPrompt: String(input.extractSystemPrompt || '').trim() || String(base.extractSystemPrompt || DEFAULT_EXTRACT_SYSTEM_PROMPT),
+        // The extraction template and edge rules fall back to their code
+        // constants at use time, never here: a default written into a slot
+        // would freeze the constant for that user. The slots carry user input
+        // alone.
+        extractTemplate: String(input.extractTemplate || '').trim() || String(base.extractTemplate || ''),
+        extractEdgeRules: String(input.extractEdgeRules || '').trim() || String(base.extractEdgeRules || ''),
         extractCrawlSystemPrompt: String(input.extractCrawlSystemPrompt || '').trim() || String(base.extractCrawlSystemPrompt || DEFAULT_CRAWL_SYSTEM_PROMPT),
         schemaIterSystemPrompt: String(input.schemaIterSystemPrompt || '').trim() || String(base.schemaIterSystemPrompt || DEFAULT_SCHEMA_ITER_SYSTEM_PROMPT),
         graphIterSystemPrompt: String(input.graphIterSystemPrompt || '').trim() || String(base.graphIterSystemPrompt || ''),
@@ -1028,10 +1038,12 @@ function applyAdvancedSettings(target, values) {
     target.recallQueryMessages = normalized.recallQueryMessages;
     target.extractBatchTurns = normalized.extractBatchTurns;
     target.extractMode = normalized.extractMode;
+    target.extractConcurrent = normalized.extractConcurrent;
     target.extractCrawlMaxRounds = normalized.extractCrawlMaxRounds;
     target.extractCrawlCandidateLimit = normalized.extractCrawlCandidateLimit;
     target.extractCrawlMaxReads = normalized.extractCrawlMaxReads;
-    target.extractSystemPrompt = normalized.extractSystemPrompt;
+    target.extractTemplate = normalized.extractTemplate;
+    target.extractEdgeRules = normalized.extractEdgeRules;
     target.extractCrawlSystemPrompt = normalized.extractCrawlSystemPrompt;
     target.schemaIterSystemPrompt = normalized.schemaIterSystemPrompt;
     target.graphIterSystemPrompt = normalized.graphIterSystemPrompt;
@@ -3625,7 +3637,6 @@ function buildDynamicToolDescription(spec = {}, mode = 'create') {
     const primaryKeyColumns = Array.isArray(spec?.primaryKeyColumns)
         ? spec.primaryKeyColumns.map(field => String(field || '').trim()).filter(Boolean)
         : [];
-    const forceUpdate = Boolean(spec?.forceUpdate);
     const latestOnly = Boolean(spec?.latestOnly);
     const normalizedMode = String(mode || 'create').trim().toLowerCase();
     const chunks = [];
@@ -3659,18 +3670,12 @@ function buildDynamicToolDescription(spec = {}, mode = 'create') {
     if (fields.includes('aliases')) {
         chunks.push('Alias normalization: put nicknames, titles, English names, translated names, short names, and alternative spellings in aliases only. Separate multiple aliases with commas or semicolons.');
     }
-    if (typeId === 'event' && fields.includes('summary')) {
-        chunks.push('Event summary time rule: summary must begin with "时间：<time>；" using an explicit full in-world date/time or date span.');
-        chunks.push('Event summary time inference: if source lacks a concrete timestamp, infer or invent one plausible continuity-consistent full time instead of placeholders.');
-        chunks.push('Event summary time ban: never use x年x月x日, 某年某月某日, 未知时间, 待定时间, or similar placeholders.');
-    }
     if (latestOnly && primaryKeyColumns.length > 0) {
         chunks.push(`Dedup rule: before create, inspect graph_data.nodes and prefer edit over create when an existing node plausibly matches by primary-key overlap (${primaryKeyColumns.join(', ')}).`);
     }
     if (normalizedMode === 'create') {
         chunks.push(`Link relation vocabulary: when adding links, only use canonical relation types ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}. Reuse existing canonical labels instead of inventing synonyms or bilingual variants.`);
     }
-    chunks.push(`Force update each extraction batch: ${forceUpdate ? 'yes' : 'no'}`);
     return chunks.join(' ');
 }
 
@@ -3681,6 +3686,7 @@ function buildDynamicExtractTools(schema = [], options = {}) {
     const specByToolName = new Map();
     const usedNames = new Set();
     const allowEditDelete = options?.allowEditDelete !== false;
+    const allowLinks = options?.allowLinks !== false;
     const activeTypes = options?.activeTypes instanceof Set ? options.activeTypes : null;
 
     for (const rawSpec of Array.isArray(schema) ? schema : []) {
@@ -3742,22 +3748,29 @@ function buildDynamicExtractTools(schema = [], options = {}) {
         );
         const fieldSet = new Set(filteredFields);
         const createProperties = {
-            ref: { type: 'string' },
-            no_link_reason: { type: 'string' },
-            links: {
+            ref: {
+                type: 'string',
+                description: allowLinks
+                    ? 'Optional ref for this new node; links in the same response target it by this value. When referencing an existing node, use only an id that appears in graph_data.nodes.'
+                    : 'Optional ref for this new node. When referencing an existing node, use only an id that appears in graph_data.nodes.',
+            },
+        };
+        if (allowLinks) {
+            createProperties.no_link_reason = { type: 'string' };
+            createProperties.links = {
                 type: 'array',
                 items: {
                     type: 'object',
                     properties: {
-                        target_ref: { type: 'string', description: 'Optional. Use either target_ref or target_node_id.' },
-                        target_node_id: { type: 'string', description: 'Optional. Use either target_node_id or target_ref.' },
+                        target_ref: { type: 'string', description: 'Optional. Use either target_ref or target_node_id. When referencing an existing node, use only an id that appears in graph_data.nodes.' },
+                        target_node_id: { type: 'string', description: 'Optional. Use either target_node_id or target_ref. When referencing an existing node, use only an id that appears in graph_data.nodes.' },
                         relation: { type: 'string', description: `Canonical relation type only. Allowed values: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}.` },
                         direction: { type: 'string', enum: ['outgoing', 'incoming', 'bidirectional'] },
                     },
                     additionalProperties: false,
                 },
-            },
-        };
+            };
+        }
         if (fieldSet.has('title')) {
             createProperties.title = { type: 'string' };
         }
@@ -3774,7 +3787,7 @@ function buildDynamicExtractTools(schema = [], options = {}) {
 
         const createRequiredColumns = filteredRequiredColumns
             .filter(field => fieldSet.has(field) || field === 'title');
-        if (typeId === 'event' && !createRequiredColumns.includes('links')) {
+        if (allowLinks && typeId === 'event' && !createRequiredColumns.includes('links')) {
             createRequiredColumns.push('links');
         }
 
@@ -3812,7 +3825,7 @@ function buildDynamicExtractTools(schema = [], options = {}) {
                     parameters: {
                         type: 'object',
                         properties: {
-                            node_id: { type: 'string' },
+                            node_id: { type: 'string', description: 'When referencing an existing node, use only an id that appears in graph_data.nodes.' },
                             title: { type: 'string' },
                             set_fields: {
                                 type: 'object',
@@ -3843,7 +3856,7 @@ function buildDynamicExtractTools(schema = [], options = {}) {
                     parameters: {
                         type: 'object',
                         properties: {
-                            node_id: { type: 'string' },
+                            node_id: { type: 'string', description: 'When referencing an existing node, use only an id that appears in graph_data.nodes.' },
                             reason: { type: 'string' },
                         },
                         required: ['node_id'],
@@ -3882,76 +3895,78 @@ function buildDynamicExtractTools(schema = [], options = {}) {
         }
     }
 
-    const linkUpsertToolName = 'luker_rpg_extract_link_upsert';
-    tools.push({
-        type: 'function',
-        function: {
-            name: linkUpsertToolName,
-            description: `Upsert relation edges between semantic nodes. Use this when only links change. Only use canonical relation types: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}. Reuse existing canonical labels instead of inventing synonyms or bilingual variants.`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    source_ref: { type: 'string', description: 'Optional. Use either source_ref or source_node_id.' },
-                    source_node_id: { type: 'string', description: 'Optional. Use either source_node_id or source_ref.' },
-                    links: {
-                        type: 'array',
-                        items: {
-                            type: 'object',
-                            properties: {
-                                target_ref: { type: 'string', description: 'Optional. Use either target_ref or target_node_id.' },
-                                target_node_id: { type: 'string', description: 'Optional. Use either target_node_id or target_ref.' },
-                                relation: { type: 'string', description: `Canonical relation type only. Allowed values: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}.` },
-                                direction: { type: 'string', enum: ['outgoing', 'incoming', 'bidirectional'] },
+    if (allowLinks) {
+        const linkUpsertToolName = 'luker_rpg_extract_link_upsert';
+        tools.push({
+            type: 'function',
+            function: {
+                name: linkUpsertToolName,
+                description: `Upsert relation edges between semantic nodes. Use this when only links change. Only use canonical relation types: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}. Reuse existing canonical labels instead of inventing synonyms or bilingual variants.`,
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        source_ref: { type: 'string', description: 'Optional. Use either source_ref or source_node_id. When referencing an existing node, use only an id that appears in graph_data.nodes.' },
+                        source_node_id: { type: 'string', description: 'Optional. Use either source_node_id or source_ref. When referencing an existing node, use only an id that appears in graph_data.nodes.' },
+                        links: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    target_ref: { type: 'string', description: 'Optional. Use either target_ref or target_node_id. When referencing an existing node, use only an id that appears in graph_data.nodes.' },
+                                    target_node_id: { type: 'string', description: 'Optional. Use either target_node_id or target_ref. When referencing an existing node, use only an id that appears in graph_data.nodes.' },
+                                    relation: { type: 'string', description: `Canonical relation type only. Allowed values: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}.` },
+                                    direction: { type: 'string', enum: ['outgoing', 'incoming', 'bidirectional'] },
+                                },
+                                additionalProperties: false,
                             },
-                            additionalProperties: false,
                         },
                     },
+                    required: ['links'],
+                    additionalProperties: false,
                 },
-                required: ['links'],
-                additionalProperties: false,
             },
-        },
-    });
-    specByToolName.set(linkUpsertToolName, {
-        id: 'link',
-        tableName: 'link',
-        tableColumns: [],
-        requiredColumns: [],
-        columnHints: {},
-        editable: true,
-        op: 'link_upsert',
-        toolName: linkUpsertToolName,
-    });
+        });
+        specByToolName.set(linkUpsertToolName, {
+            id: 'link',
+            tableName: 'link',
+            tableColumns: [],
+            requiredColumns: [],
+            columnHints: {},
+            editable: true,
+            op: 'link_upsert',
+            toolName: linkUpsertToolName,
+        });
 
-    const linkDeleteToolName = 'luker_rpg_extract_link_delete';
-    tools.push({
-        type: 'function',
-        function: {
-            name: linkDeleteToolName,
-            description: `Delete a relation edge between two semantic nodes. Use when a relationship is no longer in effect (dissolved, broken, repaid, revoked). Composite states like partner_of + deceiving stay valid — do NOT delete to "replace" with another relation. Direction: 'outgoing' deletes from→to only; 'incoming' deletes to→from only; 'bidirectional' (default) deletes both. Only use canonical relation types: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}.`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    source_node_id: { type: 'string', description: 'Existing node id (one endpoint of the edge).' },
-                    target_node_id: { type: 'string', description: 'Existing node id (the other endpoint).' },
-                    relation: { type: 'string', description: `Canonical relation type only. Allowed values: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}.` },
-                    direction: { type: 'string', enum: ['outgoing', 'incoming', 'bidirectional'] },
+        const linkDeleteToolName = 'luker_rpg_extract_link_delete';
+        tools.push({
+            type: 'function',
+            function: {
+                name: linkDeleteToolName,
+                description: `Delete a relation edge between two semantic nodes. Use when a relationship is no longer in effect (dissolved, broken, repaid, revoked). Composite states like partner_of + deceiving stay valid — do NOT delete to "replace" with another relation. Direction: 'outgoing' deletes from→to only; 'incoming' deletes to→from only; 'bidirectional' (default) deletes both. Only use canonical relation types: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}.`,
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        source_node_id: { type: 'string', description: 'Existing node id (one endpoint of the edge). When referencing an existing node, use only an id that appears in graph_data.nodes.' },
+                        target_node_id: { type: 'string', description: 'Existing node id (the other endpoint). When referencing an existing node, use only an id that appears in graph_data.nodes.' },
+                        relation: { type: 'string', description: `Canonical relation type only. Allowed values: ${CANONICAL_EXTRACT_RELATION_TYPES_TEXT}.` },
+                        direction: { type: 'string', enum: ['outgoing', 'incoming', 'bidirectional'] },
+                    },
+                    required: ['source_node_id', 'target_node_id', 'relation'],
+                    additionalProperties: false,
                 },
-                required: ['source_node_id', 'target_node_id', 'relation'],
-                additionalProperties: false,
             },
-        },
-    });
-    specByToolName.set(linkDeleteToolName, {
-        id: 'link',
-        tableName: 'link',
-        tableColumns: [],
-        requiredColumns: [],
-        columnHints: {},
-        editable: true,
-        op: 'link_delete',
-        toolName: linkDeleteToolName,
-    });
+        });
+        specByToolName.set(linkDeleteToolName, {
+            id: 'link',
+            tableName: 'link',
+            tableColumns: [],
+            requiredColumns: [],
+            columnHints: {},
+            editable: true,
+            op: 'link_delete',
+            toolName: linkDeleteToolName,
+        });
+    }
 
     tools.push({
         type: 'function',
@@ -4302,18 +4317,30 @@ export function buildGraphNodeHints(store, schema, limit = 0, options = {}) {
         if (rows.length >= safeLimit) {
             break;
         }
-        const type = String(node?.type || '').trim().toLowerCase();
-        const spec = schemaMap.get(type);
-        rows.push({
-            ...buildLlmFriendlyNodeProjection(node, spec),
-            type,
-            semantic_depth: Number(node?.semanticDepth ?? node?.metadata?.semantic_depth ?? 0),
-            parent_id: String(node?.parentId || ''),
-            child_count: Array.isArray(node?.childrenIds) ? node.childrenIds.length : 0,
-            editable: Boolean(spec?.editable),
-        });
+        rows.push(buildGraphNodeRow(node, schemaMap));
     }
     return rows;
+}
+
+/**
+ * Project one semantic node into a `graph_data.nodes` row. Shared by
+ * `buildGraphNodeHints` and the round node list so both carry the same shape.
+ *
+ * @param {object} node
+ * @param {Map<string, object>} schemaMap type id (lowercase) → schema entry
+ * @returns {object}
+ */
+function buildGraphNodeRow(node, schemaMap) {
+    const type = String(node?.type || '').trim().toLowerCase();
+    const spec = schemaMap.get(type);
+    return {
+        ...buildLlmFriendlyNodeProjection(node, spec),
+        type,
+        semantic_depth: Number(node?.semanticDepth ?? node?.metadata?.semantic_depth ?? 0),
+        parent_id: String(node?.parentId || ''),
+        child_count: Array.isArray(node?.childrenIds) ? node.childrenIds.length : 0,
+        editable: Boolean(spec?.editable),
+    };
 }
 
 function buildJsonXmlSection(tag, value) {
@@ -4335,11 +4362,12 @@ function buildExtractInputHead() {
     ].join('\n');
 }
 
-function buildExtractInputTail(requiredTypes, graphData) {
+function buildExtractInputTail(requiredTypes, graphData, roundNodes = null) {
     const safeRequiredTypes = Array.isArray(requiredTypes)
         ? requiredTypes.map(item => normalizeText(item).toLowerCase()).filter(Boolean)
         : [];
     const safeGraphData = graphData && typeof graphData === 'object' ? graphData : { initialized: false, nodes: [] };
+    const roundNodesSection = buildRoundNodesSection(roundNodes);
 
     const requiredTypeXml = safeRequiredTypes.length > 0
         ? safeRequiredTypes.map(type => `    <type>${type}</type>`).join('\n')
@@ -4359,6 +4387,7 @@ function buildExtractInputTail(requiredTypes, graphData) {
         '  <input_guide>graph_data.edges contains the currently projected semantic relations between nodes in this graph view.</input_guide>',
         '  <input_guide>If graph_data.initialized=false, treat graph as uninitialized and prefer create operations over edit/delete.</input_guide>',
         buildJsonXmlSection('graph_data', safeGraphData),
+        ...(roundNodesSection ? [roundNodesSection] : []),
         '</extract_input>',
     ].join('\n');
 }
@@ -4528,6 +4557,10 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
         : null;
     const rebuildCreateOnly = Boolean(options?.rebuildCreateOnly);
     const crawlGraph = options?.crawlGraph && typeof options.crawlGraph === 'object' ? options.crawlGraph : null;
+    const includeEdges = options?.includeEdges !== false;
+    const includeLinks = options?.includeLinks !== false;
+    const allowEmptyTypes = options?.allowEmptyTypes === true;
+    const requestedTypes = options?.types instanceof Set ? options.types : null;
     const graphNodes = crawlGraph
         ? (Array.isArray(crawlGraph.nodes) ? crawlGraph.nodes : [])
         : buildGraphNodeHints(store, schema, 0, { maxSeq: extractionMaxSeq, scope: 'visible' });
@@ -4569,10 +4602,9 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
         nodes: graphNodes,
         edges: graphEdges,
     };
-    const baseExtractSystemPrompt = String(settings.extractSystemPrompt || '').trim() || DEFAULT_EXTRACT_SYSTEM_PROMPT;
     const cadenceSeq = Number.isFinite(Number(extractionMaxSeq)) ? Number(extractionMaxSeq) : 0;
-    const activeTypes = computeActiveExtractionTypes(schema, cadenceSeq);
-    if (activeTypes.size === 0) {
+    const activeTypes = requestedTypes || computeActiveExtractionTypes(schema, cadenceSeq);
+    if (activeTypes.size === 0 && !allowEmptyTypes) {
         store.lastExtractionDebug = {
             ...(store.lastExtractionDebug || {}),
             extracted: false,
@@ -4581,9 +4613,15 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
         };
         return [];
     }
-    const extractSystemPrompt = assembleExtractionSystemPrompt(baseExtractSystemPrompt);
+    // Hard-required types drive both the `<required_types>` block and the
+    // missing-tool retry. Default: the active types the schema marks
+    // force-update. The concurrent round names them per request.
+    const requiredTypes = options?.requiredTypes instanceof Set
+        ? options.requiredTypes
+        : new Set(Array.from(activeTypes).filter(typeId => forceUpdateTypes.has(typeId)));
+    const { template, edgeRules } = resolveExtractionTemplate(settings);
     const extractInputHead = buildExtractInputHead();
-    const extractInputTail = buildExtractInputTail(Array.from(forceUpdateTypes), graphDataPayload);
+    const extractInputTail = buildExtractInputTail(Array.from(requiredTypes), graphDataPayload, options?.roundNodes || null);
     // Role-split dialogue: each chat message is a real chat-completion turn
     // (role=user|assistant), with a leading <seq>{n}</seq> tag preserving
     // batch/prior boundary identification. Prompt-scoped user regex is
@@ -4591,7 +4629,10 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
     // main generation pipeline; the wrapper `<dialogue_batch>` open/close
     // lives in extractInputHead/extractInputTail.
     const roleSplitChatMessages = buildRoleSplitChatMessages(messageBatch, context, { wrapWithSeq: true });
-    const perTypeRulesBlock = buildPerTypeRulesBlock(schema, activeTypes);
+    const extractSystemPrompt = renderExtractionTemplate(template, {
+        nodesBlock: buildExtractionNodesBlock(schema, activeTypes),
+        edgesBlock: includeEdges ? buildExtractionEdgesBlock(edgeRules) : '',
+    });
     const resolvedExtractWorldInfo = await resolveMemoryGraphWorldInfo(context, settings, {
         worldInfoMessages: messages.map(item => ({
             role: item.role,
@@ -4604,6 +4645,7 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
     const { tools, specByToolName } = buildDynamicExtractTools(schema, {
         allowEditDelete: !rebuildCreateOnly,
         activeTypes,
+        allowLinks: includeLinks,
     });
     const allowedNames = new Set(['luker_rpg_extract_done', ...specByToolName.keys()]);
     const semanticRetries = Math.max(0, Math.min(10, Math.floor(Number(settings?.toolCallRetryMax) || 0)));
@@ -4633,10 +4675,9 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
             notifyExtractionRetry(retryCategory, attempt - 1, semanticRetries);
         }
         const reminderText = attempt > 0
-            ? `Previous response was incomplete. Return COMPLETE extraction tool calls in one response: exactly one final luker_rpg_extract_done as the last call (SKIP-all with done-only is valid).${retryReason ? ` Fix: ${retryReason}` : ''}`
+            ? `Previous response was incomplete. Return COMPLETE extraction tool calls in one response: exactly one final luker_rpg_extract_done as the last call.${retryReason ? ` Fix: ${retryReason}` : ''}`
             : '';
         const tailParts = [extractInputTail];
-        if (perTypeRulesBlock) tailParts.push(perTypeRulesBlock);
         if (reminderText) tailParts.push(reminderText);
         const taskMessages = [
             { role: 'system', content: extractSystemPrompt },
@@ -4769,7 +4810,9 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
                 break;
             }
             const safeTypeId = String(spec.id || '').trim().toLowerCase();
-            if (safeTypeId === 'event') {
+            // The link surface only exists when this request carries it; a node
+            // request has no `links` property on the create tool at all.
+            if (includeLinks && safeTypeId === 'event') {
                 if (!mapped.payload?.hasLinksProp) {
                     invalid = true;
                     retryReason = 'Event create must include links. Use links: [] with no_link_reason if no relation is grounded.';
@@ -4795,7 +4838,7 @@ async function extractNodesWithLLM(context, store, settings, schema, messageBatc
             retryCategory = 'invalid';
             continue;
         }
-        const missingForceTypes = [...forceUpdateTypes].filter(typeId => !calledTypes.has(typeId));
+        const missingForceTypes = [...requiredTypes].filter(typeId => !calledTypes.has(typeId));
         if (missingForceTypes.length > 0) {
             retryReason = `Missing force-update type tool calls: ${missingForceTypes.join(', ')}.`;
             retryCategory = 'incomplete';
@@ -5963,6 +6006,148 @@ async function buildExtractionCrawlGraph(context, store, settings, schema, messa
     };
 }
 
+/**
+ * Project the nodes this round created or updated, in operation order, into the
+ * same row shape `graph_data.nodes` uses. The edge request carries the result as
+ * `<round_nodes>` so the edge decision can use the ids the node stage just
+ * created as link endpoints — the projected graph may have folded or omitted
+ * them. A node already listed under `created` is not repeated under `updated`.
+ *
+ * @param {object} store working store, already carrying the applied ops
+ * @param {Array<object>} schema effective node type schema
+ * @param {Array<object>} appliedOps ops the node stage applied
+ * @returns {{ created: object[], updated: object[] }}
+ */
+function buildRoundNodeRows(store, schema, appliedOps) {
+    const schemaMap = new Map(
+        (Array.isArray(schema) ? schema : [])
+            .map(item => [String(item?.id || '').trim().toLowerCase(), item]),
+    );
+    const created = [];
+    const updated = [];
+    const createdIds = new Set();
+    for (const op of Array.isArray(appliedOps) ? appliedOps : []) {
+        const nodeId = String(op?.nodeId || '').trim();
+        if (!nodeId) {
+            continue;
+        }
+        const node = store?.nodes?.[nodeId];
+        if (!node) {
+            continue;
+        }
+        const kind = String(op?.op || '').trim().toLowerCase();
+        if (kind === 'create') {
+            if (createdIds.has(nodeId)) {
+                continue;
+            }
+            createdIds.add(nodeId);
+            created.push(buildGraphNodeRow(node, schemaMap));
+        } else if (kind === 'edit') {
+            if (createdIds.has(nodeId)) {
+                continue;
+            }
+            updated.push(buildGraphNodeRow(node, schemaMap));
+        }
+    }
+    return { created, updated };
+}
+
+/**
+ * Run one extraction round as a node stage and an edge stage.
+ *
+ * The node stage sends one request per active type, all in flight at once, each
+ * carrying only its own type's rules and create tool. Every request reads the
+ * same round-opening snapshot (`readStore`), so concurrent requests cannot see
+ * each other's writes; their operations are applied to `store` in schema order
+ * once all settle. Any node request failing throws, and `runExtractionForStore`
+ * discards the whole working copy.
+ *
+ * The edge stage then sends one request carrying the round's node list, so it
+ * can link nodes by id — node ids are assigned when the ops apply, so the round's
+ * new nodes already have them. It runs even when no type is active, because
+ * edges between existing nodes can still change.
+ *
+ * @param {object} options
+ * @param {Function} [options.onPhaseProgress] receives `{ stage, done, total }`
+ * @returns {Promise<{ processed: boolean, changed: boolean }>}
+ */
+async function processConcurrentBatch(context, store, settings, schema, extractBatch, {
+    maxSeq,
+    minSeq,
+    abortSignal,
+    rebuildCreateOnly,
+    onPhaseProgress,
+} = {}) {
+    const readStore = normalizeStoreForRuntime(store);
+    const cadenceSeq = Number.isFinite(Number(maxSeq)) ? Number(maxSeq) : 0;
+    const activeTypes = computeActiveExtractionTypes(schema, cadenceSeq);
+    const crawlMode = String(settings?.extractMode || '').toLowerCase() === 'crawl';
+    const buildCrawl = async () => (crawlMode
+        ? await buildExtractionCrawlGraph(context, readStore, settings, schema, extractBatch, { maxSeq, abortSignal })
+        : null);
+    const forceTypes = new Set(schema
+        .filter(item => item?.forceUpdate)
+        .map(item => String(item?.id || '').trim().toLowerCase())
+        .filter(Boolean));
+    const reportProgress = typeof onPhaseProgress === 'function' ? onPhaseProgress : () => {};
+    let changed = false;
+    const nodeTypes = [...activeTypes];
+    let nodesSettled = 0;
+    reportProgress({ stage: 'nodes', done: 0, total: nodeTypes.length });
+    const nodePhase = nodeTypes.map(async (typeId) => {
+        const operations = await extractNodesWithLLM(context, readStore, settings, schema, extractBatch, {
+            maxSeq,
+            abortSignal,
+            rebuildCreateOnly,
+            crawlGraph: await buildCrawl(),
+            types: new Set([typeId]),
+            includeEdges: false,
+            includeLinks: false,
+            requiredTypes: forceTypes.has(typeId) ? new Set([typeId]) : new Set(),
+        });
+        return { typeId, operations };
+    });
+    for (const pending of nodePhase) {
+        const bump = () => reportProgress({ stage: 'nodes', done: ++nodesSettled, total: nodeTypes.length });
+        pending.then(bump, bump);
+    }
+    const settled = await Promise.allSettled(nodePhase);
+    const failed = settled.find(entry => entry.status === 'rejected');
+    if (failed) {
+        throw failed.reason;
+    }
+    const appliedOps = [];
+    for (const entry of settled) {
+        const operations = entry.value.operations;
+        if (operations.length === 0) {
+            continue;
+        }
+        const appliedReport = applyExtractionOpsImpl(store, operations, { maxSeq, minSeq, context, settings });
+        assertExtractionOpsApplied(appliedReport);
+        appliedOps.push(...appliedReport.applied);
+        changed = true;
+    }
+    reportProgress({ stage: 'edges', done: 0, total: 1 });
+    const edgeOperations = await extractNodesWithLLM(context, readStore, settings, schema, extractBatch, {
+        maxSeq,
+        abortSignal,
+        rebuildCreateOnly,
+        crawlGraph: await buildCrawl(),
+        types: new Set(),
+        includeEdges: true,
+        includeLinks: true,
+        allowEmptyTypes: true,
+        requiredTypes: new Set(),
+        roundNodes: buildRoundNodeRows(store, schema, appliedOps),
+    });
+    if (edgeOperations.length > 0) {
+        const applied = applyExtractionOpsImpl(store, edgeOperations, { maxSeq, minSeq, context, settings });
+        assertExtractionOpsApplied(applied);
+        changed = true;
+    }
+    return { processed: true, changed };
+}
+
 async function processPendingMessageBatchWithLLM(context, store, settings, schema, frames, batchStartIndex, batchEndIndex, options = {}) {
     const source = Array.isArray(frames) ? frames : [];
     const safeStart = Math.max(0, Math.min(source.length - 1, Math.floor(Number(batchStartIndex) || 0)));
@@ -5979,6 +6164,15 @@ async function processPendingMessageBatchWithLLM(context, store, settings, schem
     const startFrame = source[safeStart];
     const startFrameSeq = Number(startFrame?.seq || 0);
     const extractionMinSeq = Number.isFinite(startFrameSeq) ? Math.max(0, Math.floor(startFrameSeq)) : null;
+    if (settings?.extractConcurrent === true) {
+        return await processConcurrentBatch(context, store, settings, schema, extractBatch, {
+            maxSeq: extractionMaxSeq,
+            minSeq: extractionMinSeq,
+            abortSignal: options?.abortSignal || null,
+            rebuildCreateOnly: Boolean(options?.rebuildCreateOnly),
+            onPhaseProgress: options?.onPhaseProgress,
+        });
+    }
     const operations = await extractNodesWithLLM(context, store, settings, schema, extractBatch, {
         maxSeq: extractionMaxSeq,
         abortSignal: options?.abortSignal || null,
@@ -5991,12 +6185,13 @@ async function processPendingMessageBatchWithLLM(context, store, settings, schem
         return { processed: true, changed: false };
     }
 
-    applyExtractionOpsImpl(store, operations, {
+    const applied = applyExtractionOpsImpl(store, operations, {
         maxSeq: extractionMaxSeq,
         minSeq: extractionMinSeq,
         context,
         settings,
     });
+    assertExtractionOpsApplied(applied);
 
     return { processed: true, changed: true };
 }
@@ -6008,7 +6203,9 @@ async function processPendingMessageBatchWithLLM(context, store, settings, schem
  * (`processPendingMessageBatchWithLLM`) and by the public write API
  * (`write-api.js`, Task 19). The function mutates `store` and returns a
  * report of which ops applied vs. which were rejected; it never throws on
- * individual op failures so a partial batch still commits as much as it can.
+ * individual op failures, so the caller decides whether a rejection is
+ * fatal (`assertExtractionOpsApplied` for the extraction pipeline, the
+ * reported `rejected` list for the public write API).
  *
  * Supported op shapes (matches the in-tree extraction tool schema):
  *   - { op: 'create', type, title, fields, ref?, links?, nodeId? } — upsert
@@ -6233,6 +6430,29 @@ export function applyExtractionOpsImpl(store, operations, {
     return { applied, rejected };
 }
 
+/**
+ * Fail the extraction batch when any operation was rejected.
+ *
+ * The extraction pipeline applies a batch and then commits its seq
+ * watermark; a rejection means part of the batch never reached the store,
+ * so committing the watermark would drop that content permanently. The
+ * batch loop wraps each attempt in a rollback snapshot, so throwing here
+ * rolls the partial batch back and retries it.
+ *
+ * @param {{ applied: object[], rejected: Array<{ op: object, error: { code: string, message: string } }> }} result
+ *     report returned by `applyExtractionOpsImpl`
+ * @throws {Error} when `result.rejected` is non-empty
+ */
+export function assertExtractionOpsApplied(result) {
+    if (result.rejected.length === 0) {
+        return;
+    }
+    const { error } = result.rejected[0];
+    throw new Error(
+        `Extraction operations rejected: ${result.rejected.length} (first: ${error.code} ${error.message})`,
+    );
+}
+
 async function runExtractionForStore(context, store, {
     force = false,
     startSeq = null,
@@ -6241,6 +6461,7 @@ async function runExtractionForStore(context, store, {
     onBatchStart = null,
     onBatchApplied = null,
     onCompressionApplied = null,
+    onPhaseProgress = null,
     rebuildCreateOnly = false,
     getEffectiveLatestSeq = null,
 } = {}) {
@@ -6327,6 +6548,18 @@ async function runExtractionForStore(context, store, {
         }
         let success = false;
         let lastFrameError = null;
+        // The in-round progress callback carries only the stage and the counts;
+        // the batch layer adds the seq range this round covers.
+        const batchOnPhaseProgress = typeof onPhaseProgress === 'function'
+            ? ({ stage, done, total }) => onPhaseProgress({
+                stage,
+                done,
+                total,
+                beginSeq: Number(startFrame?.seq || 0),
+                endSeq: Number(endFrame?.seq || 0),
+                latestSeq,
+            })
+            : null;
         for (let attempt = 0; attempt <= frameErrorRetries; attempt++) {
             const attemptSnapshot = captureRollbackSnapshot(store);
             try {
@@ -6342,6 +6575,7 @@ async function runExtractionForStore(context, store, {
                         compressionStats,
                         abortSignal,
                         rebuildCreateOnly: Boolean(rebuildCreateOnly),
+                        onPhaseProgress: batchOnPhaseProgress,
                     },
                 );
                 success = Boolean(batchResult?.processed);
@@ -7071,6 +7305,7 @@ async function chooseRecallRoute(context, settings, recallState) {
         table_columns: spec.tableColumns,
         required_columns: spec.requiredColumns,
         force_update: Boolean(spec.forceUpdate),
+        extract_every_n: Number(spec.extractEveryN),
         always_inject: Boolean(spec.alwaysInject),
         editable: Boolean(spec.editable),
         compression_mode: String(spec.compressionMode || 'none'),
@@ -8369,7 +8604,7 @@ async function runLLMDrivenRecall(context, store, payload) {
     };
 }
 
-async function rebuildStoreFromCurrentChat(context, { abortSignal = null, onBatchStart = null } = {}) {
+async function rebuildStoreFromCurrentChat(context, { abortSignal = null, onBatchStart = null, onPhaseProgress = null } = {}) {
     const chatKey = getChatKey(context);
     const target = memoryStoreTargets.get(chatKey) || buildMemoryTargetFromContext(context);
     if (!target) {
@@ -8392,6 +8627,7 @@ async function rebuildStoreFromCurrentChat(context, { abortSignal = null, onBatc
         showCompressionToast: false,
         abortSignal,
         onBatchStart,
+        onPhaseProgress,
         onBatchApplied: async ({ endSeq }) => {
             if (!hasCommittedBatch) {
                 const currentBatchEntries = getRollbackHistory(chatKey)
@@ -8482,6 +8718,16 @@ function formatExtractionRangeToast(beginSeq, endSeq, latestSeq) {
     const end = Math.max(begin, Math.floor(Number(endSeq || begin)));
     const latest = Math.max(end, Math.floor(Number(latestSeq || end)));
     return i18nFormat('Memory graph update running... seq ${0}-${1} / latest ${2}', begin, end, latest);
+}
+
+function formatExtractionPhaseToast(stage, done, total) {
+    const kind = String(stage || '').trim().toLowerCase();
+    if (kind === 'edges') {
+        return i18n('Edge stage');
+    }
+    const safeDone = Math.max(0, Math.floor(Number(done) || 0));
+    const safeTotal = Math.max(0, Math.floor(Number(total) || 0));
+    return i18nFormat('Node stage ${0}/${1}', safeDone, safeTotal);
 }
 
 function truncateStoreFromSeq(store, fromSeq, chatKey = '') {
@@ -9173,6 +9419,9 @@ async function runScheduledExtractionPass(chatKey) {
             getEffectiveLatestSeq: () => activeExtractionScope?.latestSeq ?? Number(preview.latestSeq || 0),
             onBatchStart: ({ beginSeq, endSeq, latestSeq }) => {
                 updateRuntimeInfoToastMessage(formatExtractionRangeToast(beginSeq, endSeq, latestSeq));
+            },
+            onPhaseProgress: ({ beginSeq, endSeq, latestSeq, stage, done, total }) => {
+                updateRuntimeInfoToastMessage(`${formatExtractionRangeToast(beginSeq, endSeq, latestSeq)} · ${formatExtractionPhaseToast(stage, done, total)}`);
             },
             onBatchApplied: async ({ endSeq }) => {
                 const batchResult = await commitMemoryStoreDiffByChatKey(
@@ -13992,13 +14241,16 @@ function renderNodeTypeSchemaCard(spec, index) {
         <textarea data-field="extractHint" class="text_pole textarea_compact" rows="2">${escapeHtml(spec.extractHint || '')}</textarea>
     </label>
     <label>${escapeHtml(i18n('Extraction Instructions'))}
-        <small style="opacity:0.7">${escapeHtml(i18n('Per-type rules appended to the extraction system prompt when this type is active this round.'))}</small>
+        <small style="opacity:0.7">${escapeHtml(i18n('Per-type rules added to the extraction request when this type is active this round.'))}</small>
         <textarea data-field="extractionInstructions" class="text_pole textarea_compact" rows="5">${escapeHtml(spec.extractionInstructions || '')}</textarea>
     </label>
-    <label>${escapeHtml(i18n('Extract Every N Floors'))}
-        <small style="opacity:0.7">${escapeHtml(i18n('1 = every extraction pass (default). Larger N reduces frequency for slow-changing tables.'))}</small>
-        <input data-field="extractEveryN" class="text_pole" type="number" min="1" step="1" value="${Number(spec.extractEveryN || 1)}" />
-    </label>
+    <div class="luker-schema-cadence-row"${spec.forceUpdate ? ' hidden' : ''}>
+        <label>${escapeHtml(i18n('Extract Every N Floors'))}
+            <small style="opacity:0.7">${escapeHtml(i18n('1 = every extraction pass (default). Larger N reduces frequency for slow-changing tables.'))}</small>
+            <small style="opacity:0.7">${escapeHtml(i18n('Force Update types run on every extraction pass; this cadence does not apply to them.'))}</small>
+            <input data-field="extractEveryN" class="text_pole" type="number" min="1" step="1" value="${Number(spec.extractEveryN || 1)}" />
+        </label>
+    </div>
     <label>${escapeHtml(i18n('RAG per-type quota override'))}
         <small style="opacity:0.7">${escapeHtml(i18n('Empty = use the global default from RAG settings. Non-negative integer overrides only this type. 0 = never surface this type via RAG.'))}</small>
         <input data-field="ragPerTypeK" class="text_pole" type="number" min="0" step="1" value="${Math.max(0, Math.floor(Number.isFinite(Number(spec.ragPerTypeK)) ? Number(spec.ragPerTypeK) : 0))}" />
@@ -14038,13 +14290,17 @@ function updateSchemaCardModeUi(card) {
     const root = jQuery(card);
     const enabled = Boolean(root.find('[data-field="compression.enabled"]').prop('checked'));
     const latestOnlyEnabled = Boolean(root.find('[data-field="latestOnly"]').prop('checked'));
+    const forceUpdateEnabled = Boolean(root.find('[data-field="forceUpdate"]').prop('checked'));
     root.find('.luker-schema-compression-hier').toggle(enabled);
     root.find('.luker-schema-latestonly-keys').toggle(latestOnlyEnabled);
+    // Force-update types run every pass, so the cadence row is hidden and its
+    // value is dropped on read (see readSchemaCard).
+    root.find('.luker-schema-cadence-row').prop('hidden', forceUpdateEnabled);
 }
 
 function readSchemaCard(card) {
     const root = jQuery(card);
-    return {
+    const spec = {
         id: String(root.find('[data-field="id"]').val() || '').trim(),
         label: String(root.find('[data-field="label"]').val() || '').trim(),
         tableName: String(root.find('[data-field="tableName"]').val() || '').trim(),
@@ -14078,6 +14334,12 @@ function readSchemaCard(card) {
             summarizeInstruction: String(root.find('[data-field="compression.summarizeInstruction"]').val() || '').trim(),
         },
     };
+    // Force-update types run every pass; their cadence is ignored, so it is
+    // not part of the read surface and must not be persisted.
+    if (spec.forceUpdate) {
+        delete spec.extractEveryN;
+    }
+    return spec;
 }
 
 function readNodeTypeSchemaEditor(root, listSelector = '#luker_rpg_memory_schema_editor_list') {
@@ -14096,7 +14358,7 @@ function renderNodeTypeSchemaEditor(root, schema, listSelector = '#luker_rpg_mem
     list.html(normalized.map((spec, index) => renderNodeTypeSchemaCard(spec, index)).join(''));
     list.find('.luker-schema-card').each((_, card) => updateSchemaCardModeUi(card));
     list.off('change.lukerSchemaMode input.lukerSchemaMode');
-    list.on('change.lukerSchemaMode', '[data-field="compression.enabled"],[data-field="latestOnly"]', function () {
+    list.on('change.lukerSchemaMode', '[data-field="compression.enabled"],[data-field="latestOnly"],[data-field="forceUpdate"]', function () {
         updateSchemaCardModeUi(jQuery(this).closest('.luker-schema-card'));
         refreshPrimaryKeyOptionsForCard(jQuery(this).closest('.luker-schema-card'));
     });
@@ -14242,7 +14504,7 @@ async function openSchemaEditorPopup(context, settings, root) {
     }
 
     jQuery(document).off(namespace);
-    jQuery(document).on(`change${namespace}`, `${selector} [data-field="compression.enabled"], ${selector} [data-field="latestOnly"]`, function () {
+    jQuery(document).on(`change${namespace}`, `${selector} [data-field="compression.enabled"], ${selector} [data-field="latestOnly"], ${selector} [data-field="forceUpdate"]`, function () {
         const card = jQuery(this).closest('.luker-schema-card');
         updateSchemaCardModeUi(card);
         refreshPrimaryKeyOptionsForCard(card);
@@ -14423,10 +14685,12 @@ function hydrateAdvancedTabFields(root, source) {
     root.find('#luker_rpg_memory_advanced_llm_visible_recent_messages').val(String(Math.max(0, Math.min(200, Number(source.llmVisibleRecentMessages ?? defaultSettings.llmVisibleRecentMessages)))));
     root.find('#luker_rpg_memory_advanced_extract_batch_turns').val(String(Math.max(1, Number(source.extractBatchTurns ?? defaultSettings.extractBatchTurns))));
     root.find('#luker_rpg_memory_advanced_extract_mode').val(String(source.extractMode || defaultSettings.extractMode));
+    root.find('#luker_rpg_memory_advanced_extract_concurrent').prop('checked', source.extractConcurrent === true);
     root.find('#luker_rpg_memory_advanced_extract_crawl_rounds').val(String(Math.max(1, Math.min(5, Number(source.extractCrawlMaxRounds ?? defaultSettings.extractCrawlMaxRounds)))));
     root.find('#luker_rpg_memory_advanced_extract_crawl_candidates').val(String(Math.max(10, Math.min(100, Number(source.extractCrawlCandidateLimit ?? defaultSettings.extractCrawlCandidateLimit)))));
     root.find('#luker_rpg_memory_advanced_extract_crawl_reads').val(String(Math.max(1, Math.min(30, Number(source.extractCrawlMaxReads ?? defaultSettings.extractCrawlMaxReads)))));
-    root.find('#luker_rpg_memory_advanced_extract_system_prompt').val(String(source.extractSystemPrompt || DEFAULT_EXTRACT_SYSTEM_PROMPT));
+    root.find('#luker_rpg_memory_advanced_extract_system_prompt').val(String(source.extractTemplate || DEFAULT_EXTRACT_TEMPLATE));
+    root.find('#luker_rpg_memory_advanced_extract_edge_rules').val(String(source.extractEdgeRules || DEFAULT_EXTRACT_EDGE_RULES));
     root.find('#luker_rpg_memory_advanced_extract_crawl_system_prompt').val(String(source.extractCrawlSystemPrompt || DEFAULT_CRAWL_SYSTEM_PROMPT));
     root.find('#luker_rpg_memory_advanced_recall_route_prompt').val(String(source.recallRouteSystemPrompt || DEFAULT_RECALL_ROUTE_SYSTEM_PROMPT));
     root.find('#luker_rpg_memory_advanced_recall_finalize_prompt').val(String(source.recallFinalizeSystemPrompt || DEFAULT_RECALL_FINALIZE_SYSTEM_PROMPT));
@@ -14452,10 +14716,12 @@ function readAdvancedTabFields(root) {
         llmVisibleRecentMessages: Number(root.find('#luker_rpg_memory_advanced_llm_visible_recent_messages').val()),
         extractBatchTurns: Number(root.find('#luker_rpg_memory_advanced_extract_batch_turns').val()),
         extractMode: String(root.find('#luker_rpg_memory_advanced_extract_mode').val() || defaultSettings.extractMode),
+        extractConcurrent: Boolean(root.find('#luker_rpg_memory_advanced_extract_concurrent').prop('checked')),
         extractCrawlMaxRounds: Number(root.find('#luker_rpg_memory_advanced_extract_crawl_rounds').val()),
         extractCrawlCandidateLimit: Number(root.find('#luker_rpg_memory_advanced_extract_crawl_candidates').val()),
         extractCrawlMaxReads: Number(root.find('#luker_rpg_memory_advanced_extract_crawl_reads').val()),
-        extractSystemPrompt: String(root.find('#luker_rpg_memory_advanced_extract_system_prompt').val() || '').trim(),
+        extractTemplate: String(root.find('#luker_rpg_memory_advanced_extract_system_prompt').val() || '').trim(),
+        extractEdgeRules: String(root.find('#luker_rpg_memory_advanced_extract_edge_rules').val() || '').trim(),
         extractCrawlSystemPrompt: String(root.find('#luker_rpg_memory_advanced_extract_crawl_system_prompt').val() || '').trim(),
         recallRouteSystemPrompt: String(root.find('#luker_rpg_memory_advanced_recall_route_prompt').val() || '').trim(),
         recallFinalizeSystemPrompt: String(root.find('#luker_rpg_memory_advanced_recall_finalize_prompt').val() || '').trim(),
@@ -15053,7 +15319,7 @@ function bindUi() {
     root.find('#luker_rpg_memory_open_graph_studio').off('click').on('click', async function () {
         await openGraphIterationStudioWithDeps(context);
     });
-    // Advanced tab: change handlers on the 21 fields — apply to live settings
+    // Advanced tab: change handlers on the advanced fields — apply to live settings
     // immediately (in-memory) but do NOT persist. Dirty note appears until a
     // scope save button is clicked (or a fresh bindUi() clears the note).
     const advancedFieldSelectors = [
@@ -15068,10 +15334,12 @@ function bindUi() {
         '#luker_rpg_memory_advanced_llm_visible_recent_messages',
         '#luker_rpg_memory_advanced_extract_batch_turns',
         '#luker_rpg_memory_advanced_extract_mode',
+        '#luker_rpg_memory_advanced_extract_concurrent',
         '#luker_rpg_memory_advanced_extract_crawl_rounds',
         '#luker_rpg_memory_advanced_extract_crawl_candidates',
         '#luker_rpg_memory_advanced_extract_crawl_reads',
         '#luker_rpg_memory_advanced_extract_system_prompt',
+        '#luker_rpg_memory_advanced_extract_edge_rules',
         '#luker_rpg_memory_advanced_extract_crawl_system_prompt',
         '#luker_rpg_memory_advanced_recall_route_prompt',
         '#luker_rpg_memory_advanced_recall_finalize_prompt',
@@ -15200,6 +15468,9 @@ function bindUi() {
                 abortSignal: fillAbortController.signal,
                 onBatchStart: ({ beginSeq, endSeq, latestSeq }) => {
                     updateRuntimeInfoToastMessage(formatExtractionRangeToast(beginSeq, endSeq, latestSeq));
+                },
+                onPhaseProgress: ({ beginSeq, endSeq, latestSeq, stage, done, total }) => {
+                    updateRuntimeInfoToastMessage(`${formatExtractionRangeToast(beginSeq, endSeq, latestSeq)} · ${formatExtractionPhaseToast(stage, done, total)}`);
                 },
                 onBatchApplied: async ({ endSeq }) => {
                     const batchResult = await commitMemoryStoreDiffByChatKey(
@@ -15367,6 +15638,9 @@ function bindUi() {
                 onBatchStart: ({ beginSeq, endSeq, latestSeq }) => {
                     updateRuntimeInfoToastMessage(formatExtractionRangeToast(beginSeq, endSeq, latestSeq));
                 },
+                onPhaseProgress: ({ beginSeq, endSeq, latestSeq, stage, done, total }) => {
+                    updateRuntimeInfoToastMessage(`${formatExtractionRangeToast(beginSeq, endSeq, latestSeq)} · ${formatExtractionPhaseToast(stage, done, total)}`);
+                },
             });
             if (!store) {
                 notifyError(i18n('No active chat selected.'));
@@ -15459,6 +15733,9 @@ function bindUi() {
                 abortSignal: rebuildAbortController.signal,
                 onBatchStart: ({ beginSeq, endSeq, latestSeq: latest }) => {
                     updateRuntimeInfoToastMessage(formatExtractionRangeToast(beginSeq, endSeq, latest));
+                },
+                onPhaseProgress: ({ beginSeq, endSeq, latestSeq: latest, stage, done, total }) => {
+                    updateRuntimeInfoToastMessage(`${formatExtractionRangeToast(beginSeq, endSeq, latest)} · ${formatExtractionPhaseToast(stage, done, total)}`);
                 },
                 onBatchApplied: async ({ endSeq }) => {
                     if (!hasCommittedBatch) {
@@ -16058,6 +16335,7 @@ export function _setPersistentDrainHookForTest(hook) {
     __testPersistentDrainHook = (typeof hook === 'function') ? hook : null;
 }
 export { buildRoleSplitChatMessages as _buildRoleSplitChatMessagesForTest };
+export { readSchemaCard };
 
 jQuery(() => {
     const context = getContext();

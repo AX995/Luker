@@ -8,7 +8,7 @@ metadata:
 
 # director-output-discipline-zh
 
-This skill is the cross-cutting output-discipline rule set for the default director RP profile. It is extracted verbatim from `director-default-prompt.js` (main agent's Reasoning composition and style + Parallel dispatch pattern + Workflow sections). The same rules are also enforced inline in the main agent's systemPrompt; this shared skill makes the discipline visible across all dispatched sub-agents so they understand the parent agent's pacing and don't overproduce.
+This skill is the cross-cutting output-discipline rule set for the default director RP profile. The same rules are also enforced inline in the main agent's systemPrompt; this shared skill makes the discipline visible across all dispatched sub-agents so they understand the parent agent's pacing and don't overproduce.
 
 ## Reasoning composition and style
 

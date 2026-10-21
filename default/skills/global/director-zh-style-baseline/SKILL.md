@@ -10,8 +10,6 @@ metadata:
 
 This skill is the Chinese-RP style baseline for the default director RP profile. The default profile targets Chinese-language RP as the primary use case, and many of the pattern lists in the sub-agent prompts (especially `voice_critic`) are bilingual but list the Chinese form first. This skill consolidates the Chinese-specific markers so all agents share the baseline.
 
-The baseline is extracted verbatim from `director-default-prompt.js` and `director-defaults.js` (voice_critic + EVENT_SUMMARY_RULES_BODY).
-
 ## Bilingual signal lists — Chinese form is primary
 
 When the original prompts list a pattern to avoid (cold observation verb, data vocabulary, meta-narration leak, etc.), the Chinese form is typically the primary form and the English is the fallback. Examples:

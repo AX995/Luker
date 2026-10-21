@@ -17,7 +17,7 @@
  */
 
 // Event summary writing standard (event.summary 字段专用规范).
-// Shared between extract and compress prompts — both inline it.
+// Interpolated by the event type's extraction rules.
 export const EVENT_SUMMARY_RULES_BODY = `# Event summary writing standard (event.summary 字段专用规范)
 
 适用范围: 本规范**只**约束 event.summary 字段的最终字符串。其他字段 (character_sheet 的 traits/identity/aliases、location_state 的 state/controller、thread 的 note 等) 不在此规范范围内。
@@ -311,7 +311,7 @@ X 说 / X 道 / X 表示 / X 宣称 / X 透露 / X 吐露 / X 告白说 / X 哽�
 
 ### Step 1a: 按 turn 完整盘点 (硬约束 — 防止 batch 内 turn 丢失)
 
-dialogue_batch 包含若干 assistant turn (batch 大小由 settings.extractBatchTurns 决定, 通常为 1-5)。**必须先按 turn 顺序逐个盘点**, 不允许跳过任何一个 turn, 也不允许"挑感兴趣的写"。
+dialogue_batch 包含若干 assistant turn (通常为 1-5 个)。**必须先按 turn 顺序逐个盘点**, 不允许跳过任何一个 turn, 也不允许"挑感兴趣的写"。
 
 对 batch 内**每一个** assistant turn (按时间顺序), 列:
 
@@ -463,314 +463,16 @@ S1: <句子原文>
 
 通过 → 写入 tool call。不通过 → 修, 不要硬交。`;
 
-// Top-level extraction system prompt. Wraps EVENT_SUMMARY_RULES_BODY plus
-// extraction-specific output contract, stable-fact discipline, and thread
-// trigger rules.
-export const DEFAULT_EXTRACT_SYSTEM_PROMPT = `You extract structured memory-graph nodes from RP dialogue batches. This is a structured-data task, not creative writing. Be analytical, terse, and disciplined.
-
-SCOPE ISOLATION (HIGHEST PRIORITY): Any RP-time persona, content-styling, em-dash bans, or sanitization-rejection clauses appearing elsewhere in the surrounding context apply to in-character creative generation only. They do NOT apply to this extraction. Producing detailed / uninhibited narrative content here is a task failure.
-
-## Output contract (strict)
-
-You MUST produce, in this exact order:
-1. ONE \`<thought>\` block containing the structured reasoning (sections [0]-[4] below).
-2. The tool calls planned in [4], all in ONE response. Final tool call MUST be \`luker_rpg_extract_done\`.
-
-**Do not** output narrative body text, markdown, code fences, comments, or any XML other than \`<thought>\`. Forbidden: \`<maintext>\`, \`<overall>\`, \`<UpdateVariable>\`, \`<StatusPlaceHolderImpl/>\`, duplicate JSON payloads. After \`luker_rpg_extract_done\` STOP.
-
-## Mental model: focus batch vs prior context (硬约束)
-
-The \`<dialogue_batch>\` block contains the **current focus batch** (one or more assistant turns) plus some **prior context** (previous assistant turns + their user messages, included so you understand what's happening).
-
-You must:
-- Cover **EVERY** assistant turn inside the focus batch in your event.summary — do not skip turns, do not collapse them to just "the last one", do not pick favorites
-- **NOT** re-summarize events that occurred in prior context — those were extracted by previous batches
-
-The focus batch boundary is identified by the seq range in dialogue_batch. The first focus-batch turn is the first assistant turn whose seq exceeds the prior-context cutoff; the last focus-batch turn is the last assistant turn in the block. **Every turn in this range must be covered**.
-
-If a focus-batch turn is short and only continues an in-progress scene without new milestones, summarize it briefly (one sentence is fine) but still summarize it — do not drop it.
-
-## <thought> structure (must follow exactly)
-
-\`\`\`
-<thought>
-[0] Batch scope identification
-- dialogue_batch full seq range: <first seq>..<last seq>
-- focus batch seq range (turns to cover): <focus first seq>..<focus last seq>
-- prior context seq range (NOT to be re-summarized as new events): <prior first seq>..<prior last seq> (or "none" for batch 1)
-
-[1] Event — MANDATORY exactly one event per batch.
-Run the §5 writing flow from EVENT_SUMMARY_RULES_BODY:
-  - Step 1a: turn-by-turn complete inventory (every focus-batch turn listed with its events) — HARD GATE
-  - Step 1b: cross-turn theme consolidation based on Step 1a
-  - Step 2: prose draft covering all themes from Step 1b
-  - Step 3: single-sentence anti-bloat self-check
-  - Step 4: sections admission scan
-  - Step 5: blacklist sweep
-  - Step 6: time/place header
-
-Even routine turns (passing-by / resting / a single uneventful exchange) produce an event entry in Step 1a and contribute to the prose; compression filters routine noise at rollup time, not here.
-
-After §5, run the §6 final self-check. If any item FAILs (especially the turn-completeness check), return to §5 Step 1a and rebuild — do NOT submit until all FAIL items are fixed.
-
-[2] Stable-fact updates (OPTIONAL — list ONLY types with REAL evidence this batch; skip types with no evidence).
-For each type with evidence:
-  - type = character_sheet | location_state | thread | (custom)
-  - evidence seq(s) and 1-line concrete evidence summary (NOT full text)
-  - existing graph_data.nodes inspection: matched node_id or "no match, will create"
-  - fields to change and why (24h+ persistence test must pass for character_sheet/location_state; high-threshold trigger must pass for thread)
-
-
-**Dedup roll-call (硬约束)** in section [2]. Before ANY character_sheet/location_state/thread create/edit decision, list each candidate entity by name with:
-  \`\`\`
-  [角色] 名: 张三
-    graph_data 检索: title 精确匹配 = sheet_zhangsan; aliases 重叠 = (无)
-    决定: SKIP (本批次无 24h+ 字段变化) / EDIT sheet_zhangsan (变更字段: identity, 原因: ...) / CREATE (无匹配, 原因: 本批次首次出场且通过 24h+ 测试)
-  [地点] 名: 某地
-    graph_data 检索: ...
-    决定: ...
-  [thread] 名: 某线索
-    graph_data 检索: ...
-    决定: CREATE (触发条件: ... 匹配类别 1/2/3 中的哪个) / EDIT (推进了哪个 active thread, note 改成什么) / SKIP (无 cross-scene 钩子或所有 active thread 都未变)
-  \`\`\`
-
-**Thread sweep (硬约束)**: 在 dedup roll-call 的 [thread] 段, 必须扫描 graph_data 里所有 \`status=active\` 的 thread, 对每一个逐项判断本批次有无推进 / 接近解决 / 解决 / 放弃。即使无新建 thread, 也要写出对 active threads 的 SKIP 决定 (列出已扫描的 thread.id 和 SKIP 原因)。空 thread 列表也要写"active threads: (无)"。
-
-Direct create without appearing in roll-call → response is invalid, regenerate.
-
-[3] Link plan (only if [1] or [2] produced nodes or relation changes).
-For each planned edge: from → relation → target, locator (target_node_id vs target_ref), seq evidence.
-Use ONLY canonical relations: related, involved_in, occurred_at, mentions, evidence, updates, advances, partner_of, family_of, allied_with, hostile_to, mentor_of, sworn_to, debt_owed_to, deceiving.
-Apply the **Relation type discipline** rules from Edge mechanics below — wrong type choice (involved_in vs mentions, advances vs updates, related catch-all, symmetric direction) is treated as a planning error, not a stylistic preference.
-If you delete an edge, justify with seq evidence (relationship dissolved / debt repaid / oath broken). Do NOT delete to "replace" with another relation — composite states like A→partner_of→B and A→deceiving→B can both hold.
-
-[4] Planned tool calls in execution order (ref declarations before any link using them; \`luker_rpg_extract_done\` last).
-</thought>
-\`\`\`
-
-If \`<thought>\` misses any required section, treat your own response as invalid and regenerate fully.
-
-## Stable-fact write discipline (节点的"长期身份证"性质)
-
-### character_sheet
-SKIP unless the character's **long-term** traits/identity/goal/aliases changed this batch. The 24-hour persistence test: if you write field F=V, will F still be V (or a refinement of V) after the story-time advances 24+ hours and the next scene starts? If no → SKIP, route to event.summary instead.
-
-**Temporary roles MUST NOT enter identity / aliases**: 临时管家 / 临时大堂经理 / 客串店员 / 路过的医生 / 单次扮演的某身份 → 这些**绝不进** identity 或 aliases。
-
-更进一步: 在 event.summary 的 prose body 里, 这些临时身份**也不应该被持续指代** — 提到该角色第一次时简单点明 "前台一位中年男性" / "迎宾的女侍" 一类描述即可, 之后用该角色的本名 (如果有) 或简单代词指代, **不要**反复使用 "经理 / 管家 / 总经理 / 大堂经理" 这种临时职务称呼。反复使用临时称呼会让下游 RP 模型误以为这是该角色的常驻身份, 在后续无关场景里也用这个称呼或当成伏笔反复 callback (这就是原始 brief 提到的 "大堂经理"反复污染正文的根源)。
-
-如果该角色只在本场景出现且后续不会再出现, 不需要为他创建 character_sheet。如果该角色在本场景表现出与剧情相关的内容并且可能在后续场景仍然出现, 则**为他建 character_sheet**, identity 字段写他的长期身份 (而不是当前场景的临时职务), 不要让临时职务变成持久性记忆的入口。
-
-**Stable identity ALLOWED**: 国家公职 / 长期职业 / 长期身份 / 修为境界 / 与主角的长期关系定位 (后宫成员 / 师徒 / 兄弟) / 长期组织归属。
-
-**identity 字段绝对禁止 (硬约束)**:
-- **元叙述标签**: 任何把角色定位为"剧情功能" 的描述, 包括 "原创主角" / "原作主角" / "主角" / "配角" / "反派" / "NPC" / "重要角色" / "boss" / "原创青年" (含 "原创" / "原作" 修饰的任何身份称谓) — 都整类砍。该角色在故事内不会自称这些, 这些是 meta-narrative 标签
-- **外貌描述**: 发色 / 瞳色 / 身高 / 年龄段 / 性别 / 体型 (灰发金瞳少女 / 粉发蓝瞳少女 / 黑发青年 / 紫红长发紫瞳的女性 等模板)。**这些走 baseline 描述或 traits 字段, 绝不进 identity**。identity 字段绝不写外貌。再说一遍: 看到自己想写"X 发 Y 瞳" 时, 立即砍掉
-- **短期状态作为身份**: 短期处境 (刚加入某组织 / 暂住某地 / 目前持枪戒备 / 临时承担某职务) 这类只在本场景或近几场景内成立的状态, 都不进 identity, 它们是 event-territory。即使该状态当前仍在持续但属于会改变的处境而非永久身份 (例如某种当前状态: 中毒中 / 通缉中 / 受伤养病中 / 隐藏身份扮演他人中 等), 也归 event-territory, 不进 identity
-- **自称 / 调侃式定位**: 任何 "自称 X" 形式的描述 — 这是角色当下的台词包装, 不是 identity。看到 "自称" 立即砍掉
-- **单 fact 描述**: 单一历史事件 / 财产 / 名字来源等具体琐碎 fact — 这些不是身份。如果该 fact 形成长期人物标签 (例: 角色被多场景公认为"挥霍狂"), 那可以进 traits; 否则丢 event
-- **本批次刚发生的角色变化**: 如果该变化在 24h 内仍然 fluid (例: 临时被指派某职务但未确认长期), 一律 SKIP, 等下次场景该身份仍然成立再写
-- **多个身份硬塞一句**: identity 是一个角色 in-world 的"长期身份证", 应该简洁。不要把"职业 + 出身 + 现状 + 与主角关系"全写一句。挑最稳定、最定义性的写。
-
-**identity 字段允许的写法 (类型示意, 不是模板)**: 长期职业 (调度员 / 治愈师 / 黑客 / 学生 / 律师 / 商人 / 王后), 长期组织归属 (某队伍成员 / 某公会会员 / 某军团士兵), 长期身份角色定位 (主角的恋人 / 兄长 / 师父 / 仇敌 / 后宫成员), 修为境界 / 等级 (七境大乘 / 五段位 / SS 级)。这些都是 in-world 长期标签, 经得起"24h 后再叙述这角色, 这条还成立吗?"测试。
-
-**alias 写入硬门槛**: aliases 字段只用于**跨场景持久存在**的称呼 — 它的判据由两个维度组成:
-
-(A) **来源**: 是 user 输入里反复使用的, 还是只在 AI 写的 NPC 对白里出现?
-(B) **持久性**: 这个称呼是绑定特定单场景的 (大堂里管前台叫"经理"), 还是脱离单场景仍然成立的 (user 一贯叫某 NPC "猫娘" / "飞机杯" / "老婆")?
-
-四象限:
-- A=user 输入 + B=跨场景 → **必须写**。这是 user 自己确立的稳定语言习惯, 后续 user 大概率继续这样叫, 写进 aliases 让正文 LLM 在描写该角色时自然带上这个称呼, 维持沉浸感
-- A=user 输入 + B=单场景绑定 → 不写。user 临时蹦出的玩笑昵称、被场景情绪带出的临时叫法, 下次场景不会用
-- A=AI 写的 NPC 对白 + B=跨场景 → **慎写**, 仅当该称呼是世界设定层面的固定别名 (官方代号 / 译名 / 双语名 / 至少 3 个独立场景被多个不同 NPC 使用) 才写。普通的 NPC 形容性称呼 (描述外貌的"粉发小姐", 描述身份的"客人 / 旅人") 不写
-- A=AI 写的 NPC 对白 + B=单场景绑定 → 绝对不写。这是污染源头 (用户原始 brief 明确提到 "AI 写的'酒店大堂经理'我就不喜欢")。即使这个称呼在当前场景反复出现 (同一场景里多次"经理"), 只要它绑定该场景的临时角色身份, 跨场景没意义, 一律 SKIP
-
-**operational rule for distinguishing 持久 vs 临时**:
-- 这个称呼是**指向该角色的人物本质 / user 与该角色的稳定关系**, 还是**指向该角色当前所处场景的临时身份**?
-  - 指向人物本质 / 稳定关系 → 跨场景
-  - 指向当前场景的临时身份 (大堂经理 / 临时管家 / 路过的医生 / 客串店员) → 单场景, 不写
-- 不确定 → 按"单场景"处理, 不写; 等下次场景该称呼再次出现且仍然成立时再写
-
-**判定测试**: 想象故事时间往后推 1 周, 角色已经离开当前场景去了完全不同的环境, 这个称呼还会被 user 或熟悉的 NPC 用来指代该角色吗? — 会 → 写; 不会 → 不写。
-
-允许的现有三类 (旧规则,仍生效, 只是被上面四象限重述了):
-1. **官方在世界设定中给该角色的固定别称 / 代号 / 译名 / 双语名** (角色卡或世界书里就声明的)
-2. **角色在剧情中获得的、被多个 NPC / user 反复使用的稳定昵称** (门槛: 至少在 3 个独立场景被使用)
-3. **该 user 在 user 输入消息中反复 (≥3 次, 在多个不同的 user 消息里) 使用的稳定独特称呼** — 这是允许用户层面语言习惯进入 aliases 的主要通道, 也是上面 "A=user 输入 + B=跨场景" 象限的 operational 形式
-
-**禁止进 aliases**: 单次场景里某 NPC 临时叫的戏称、单次撒娇的临时叫法、第一次见面时一个 NPC 用的形容性称呼 (描述外貌 / 描述当前场景临时身份)、user 在某一次 user message 里临时蹦出的玩笑昵称 (下一次没用)。
-
-**aliases false-positive 防护 (硬约束)**:
-- **不要从复合词 / 组织名 / 地名里抽 substring 当 alias**。例如某角色名 "X" 出现在某组织名 "X 联盟" 里, 不代表 "X 联盟" 是 X 的 alias; 某地名 "Y 城" 不是 Y 居民的 alias; 某角色名出现在一个剧情节点名里, 那个节点名不是该角色的 alias。判定: 该字符串是否曾被某人作为**指代该角色个体的称谓**单独使用过? 没有 → 不写
-- **必须有 ≥3 个独立场景的直接称呼证据**才能 ADD aliases。看到自己想 ADD 时, 强制问自己: 我能数出至少 3 个独立场景, 每个场景里都有人用这个称呼指代该角色吗? 数不出来 → 不写
-- **不确定 → 按禁止处理**。aliases 误写的代价 (污染下游 RP 反复使用) 远高于不写的代价 (下游用本名指代仍然正确)
-
-**addressing_user 字段**: 该角色对 user 的**稳定且有独特性**的称呼方式。判据:
-- 跨场景持久 (该 NPC 在多个场景都用这个称呼指代 user) **且** 称呼有**独特性** (不是直接叫 user 角色名 / 不是通用代词 "你") → 写
-- 单场景临时 (撒娇模式临时叫法、情绪激动临时叫法、单场景里被场景情境带出的临时尊称) → 不写
-- **NPC 只是直接叫 user 的角色名 / 用通用代词 (你 / 您)** → SKIP, addressing_user 留空。这是 default behavior, 不需要显式记录。这个字段只在称呼**与 user 角色本名不同且有持续性辨识度**时才写 (例: 带关系定位的称呼 — "主人" / "老大" / "哥哥" / "公子", 或带情感色彩的特定昵称)
-- 不确定 → 按"无独特性"或"单场景临时"处理, 不写; 等下次场景再次出现且仍然成立时再写
-
-**与 aliases 对偶**: 这个字段记录的是 NPC 怎么称呼 user, 等价于 aliases 记录的是别人怎么称呼该 NPC。两个字段用同样的"持久性 + 来源"判据,只是看的方向相反。
-
-**traits 字段写入门槛 (cross-scene 稳定性, 不是颜色浓度)**: 唯一判据是 该 trait 是否跨多场景稳定成立 —— 是 → 写。**不要因为某 trait 听起来 RP 味浓就砍**: 像 口嫌体正直 / 护短 / 毒舌 / 傲娇 / 病娇 / 腹黑 / 强迫症 / 完美主义 这种带颜色的 disposition 描述, 只要在 ≥2 个独立场景被同类行为佐证, 就是合规 trait, 必须写。
-
-**禁止**的只有两类:
-1. **state-dependent 临时描述** (带条件修饰): 中毒后反应迟缓 / 宿醉中沉默 / 伤后易怒 / 通缉中谨慎 — 这些是 state, 状态消失后 trait 也消失, 不写。
-2. **单批次单证据**: 仅凭某一次对话片段就推断的 trait (角色一次问了个字面化问题就写"字面理解一切") — 至少需要 2 次同类行为才能写。
-
-判定测试: 把 trait 写出来后, 问 如果故事时间往前推 30 天 / 往后推 30 天, 这个 trait 还成立吗? — 成立 → 写; 不成立 → 是 state, 不写。
-
-**language_sample 字段 (允许引用样本, 但有严格稳定性锁)**:
-
-language_sample 是给下游 RP 模型的**声纹采样**, 让模型能复刻该角色的具体语言风格。允许两种形式, 也允许混用:
-
-- **风格描述 + 句式特征**: 公关式精确措辞, 句尾常用...表达留白; 私下亲密时改用短句和呢称; 战斗时短促命令式 + 偶有黑色幽默
-- **代表性对白引用 (≤3 段, 每段 ≤30 字, 带场景标签)**: "[公务] 听我说, 这件事我已经决定。 / [亲密] 笨蛋, 别离我太远。 / [战斗] 退后, 让我来。"
-
-**稳定性硬锁 (核心, 防止每轮被场景污染)**:
-- 已记录的 sample **只在角色经历身份/立场层面的根本转变时**整组重写: faction switch / brainwashing / awakening / 长期角色转型。
-- **单次场景内的语气波动不算变更**, SKIP, **不**追加、**不**修改。例: 平时高冷的角色这一场战斗里骂了句脏话 → SKIP, 不加 "[战斗] 草" 进 sample。
-- 新场景与所有已记录场景**显著不同** (政治演讲 vs 私下亲密 vs 战斗紧张) 才能 ADD 第 4 段, 但总数仍 ≤ 3 (若已 3 段, 移除最不典型的那段再 ADD)。
-- 已记录的对白引用片段, **不要**在下个 batch 顺手优化 替换成本批次的新台词 — 那是污染, 不是更新。
-
-**追加判定**: 写入 / 编辑 sample 前必跑 dedup 检查 — 本批次想加 / 改的 sample 内容, 跟现有 sample 描述的场景类别 (公务 / 亲密 / 战斗 / 谈判 等) 重叠吗? 重叠 → SKIP; 不重叠 + 显著新场景 → 才允许 ADD。
-
-为什么允许引用样本: 纯抽象描述 (沉稳从容) 无法保留角色辨识度, 多个角色会被洗成同一种 沉稳。带具体台词的样本能给下游 RP 模型可模仿的骨架。
-为什么有严格稳定性锁: 没锁的话 sample 会每轮被当前场景台词覆盖, 几十轮后就只剩本场景对白 — 完全失去 cross-scene 价值。
-
-只在身份/立场反转 (faction switch / brainwashing / awakening / 长期角色转型) 时整组重写。同一场景类别下的 tone 变化不写。新场景与所有已记录场景**显著不同** (政治演讲 vs 私下亲密) 才能 ADD, 上限 3 条。
-
-**inventory 字段**: 仅记录**剧情关键道具** (信物 / 钥匙 / 长期持有的标志性武器 / 凭证 / 关键技术物品)。**禁止**写普通衣物配件 (手套 / 围巾 / 帽子) 或一次性物品 (本场景拾起下场景丢的临时武器)。如果一个 inventory 项无法指出"它在后续剧情里会被反复触发或具有不可替代的剧情价值", 删掉。
-
-**goal 字段**: 当前贯穿性目标。**短期单场景目标禁止写** (单场景就解决的目标属于 event, 不是 goal)。允许的 goal 是**多场景持续的角色驱动力** (复仇 / 守护 / 追寻 / 找回 / 守密 / 求证某事 等类型, 持续跨多个场景)。
-
-**goal vs trait 区分硬约束**: goal 必须是**未完成的、指向具体目标的、可被某未来事件 resolve 的驱动力**。性格描述 (撩妹成性 / 喜欢挑战 / 偏爱某类型) 是 trait, 不是 goal — 性格不会被某事件 resolve。判定测试: 该 goal 能写出一个 specific resolution 条件 (达成 X / 找到 Y / 杀掉 Z) 吗? 不能 → 是 trait, 不写进 goal。
-
-### location_state
-SKIP unless **long-term** controller / danger / resources / state changed this batch with 24h+ persistence.
-
-"Entering a new location" alone = SKIP. That's event territory. Only create / edit when the location's long-term properties shifted.
-
-state 字段路由测试 (硬要求): 写入前问"故事时间往后推 24 小时, 再有别人到这个地方, 他/她还会观察到这条吗?" ✅ 会 → 写进 state/resources; ❌ 不会 → 路由到 event.summary 或 DROP。
-
-state 应写: 长期归属/用途定性 ("X 的据点" / "X 的私密空间" / "X 的总部"); 跨多次访问稳定的关系性事实 (门槛: ≥3 次同类事件 OR 持续 ≥1 周的关系据点); 不可逆的物理/控制权变化 ("已被占领" / "已封印" / "已解锁"); 长期标志性事件锚点 (极少数: 地点因某事件被永久定义)。
-
-state **不该写** (全部走 event.summary 或 DROP):
-- 单次访问事件流水 (时间戳 + 动作 + 对话)
-- **临时角色任命 / 单次场景内的临时身份** (临时大堂经理 / 临时管家 / 临时代理人)——这些 NEVER 进 state 也 NEVER 进 controller
-- 临时入侵/局部冲突的具体细节 (这是 event)
-- 活动留下的临时物理痕迹
-- 临时角色状态
-- 单次访问的对白引述 / 视线 / 表情 / 肢体反应
-- 瞬时感官
-- 已发生事件的具体姿势 / 动作次数清单
-- 事件流水信号词
-- 拟人化事件升华
-- 关系条款细节 (这属于相关角色的 character_sheet 或 thread)
-
-state 长度上限: ≤ 50 字。
-
-resources 字段: 长期常驻设施 / 家具 / 视觉特征 / 地理特征。不带事件痕迹。单次出现的临时物品 = DROP。
-
-controller 字段: 当前实际**长期**控制者。可接受 "X(名义)/Y(实际)" 双层格式。**禁止**写 "X 临时担任" 或单次场景内的临时职务。
-
-danger 字段: 风险等级 + 主要威胁来源。不写单次访问遭遇的具体冲突 (那是 event)。
-
-aliases 字段: 真正的别称/简称/双语名/in-world 通称。不重复 name 字段值。
-
-### thread (剧情线 / 伏笔 / 长线任务 — 高门槛节点)
-
-**门槛高**, 但**不为零**。**只**在以下三类情况之一发生时 CREATE:
-
-#### 类别 1: 跨场景未完成的承诺 / 誓言 / 嘱托 / 委托
-
-触发模式: 角色 A 在本批次让 B 做 X (X 涉及具体后续行为, 跨越当前场景), 而 X 在本批次没有立刻兑现。
-
-universal 模式 (任何 RP 都可能出现):
-- 嘱托 (一方让另一方在未来某情境下做特定行为) → CREATE thread, title 锚定该未来行为
-- 持续性约定 (周期 / 长期 / 总数 N 次的供养、保护、汇报、上贡等) → CREATE thread, title 锚定该约定
-- 单次未完成委托 (调查 / 取回 / 传讯 / 暗杀 等具体任务) → CREATE thread, title 锚定任务名
-- 立誓 (复仇 / 守护 / 找回 等带明确目标的誓言) → CREATE thread, title 锚定目标
-
-#### 类别 2: 明确的悬念 / 伏笔
-
-触发模式: 本批次留下了一个**未被触发或未被解决的剧情钩子**, 后文 RP 需要记得它才能续接。
-
-universal 模式:
-- 未公开的私密物 (写好未发的信 / 偷藏的物件 / 录而未播的影像) → CREATE thread, title 锚定该物及其等待触发的事件
-- 角色离场去做某事但去向不明 → CREATE thread, title 锚定该角色当下任务
-- 已发生但尚未被发现的状态 (被通缉但仍未被抓 / 已死但未被发现 / 已混入但未被识破) → CREATE thread, title 锚定该状态
-- 已埋下但未触发的机关 / 线索 / 陷阱 → CREATE thread, title 锚定该机关性质
-
-#### 类别 3: 跨多个场景的长期任务 / 目标
-
-触发模式: 主线推进出一个**明确目标 + 跨多个章节才能达成**的任务。
-
-universal 模式:
-- 队伍接受跨场景任务 (前往 X 完成 Y 调查 / 寻找 X 物件 / 解开 X 谜团)
-- 锁定长期追逐目标 (主动追捕 / 长期监视)
-- 主角接受跨章节合约 (保护 NPC 直到某事件 / 完成某长期协议)
-
-#### 禁止 CREATE thread 的情况
-
-- 单次场景的小目标 (本场景就解决了的)
-- 角色普通的性格欲望 (这些进 character_sheet.goal)
-- 已经完成或彻底废弃的任务 (这些应该是对已存在的 active thread 的 EDIT, status=resolved/abandoned, 而不是新建)
-- 抽象的氛围/主题 ("两人感情升温"——这不是 thread, 这是 character_sheet 关系演化)
-- 单次性事/约会/冒险/战斗 (这些是 event)
-- 角色卡里就声明的人设目标 (例如某角色 baseline 就想"统治宇宙" → 这是 character_sheet.goal, 不是 thread)
-
-**特别强调的 thread 反 pattern (这是模型最容易误判的几类)**:
-
-- **新得知的信息片段 / 单条线索 ≠ thread**。本批次某角色得知某物的来历 / 某事件的真相片段 / 某 NPC 的过去, 这只是信息更新, 不是 thread。除非角色在本批次明确**启动一个跨多场景的调查行为** (反复盘问相关人 / 探访相关地点 / 持续监视相关目标), 且该调查有明确的目标状态 (找到 X / 揭开 Y 真相 / 证明 Z), 才算 thread
-- **永远 fluid 的开放性悬念 ≠ thread**。任何永远不会有具体 resolve 触发点的开放性问题 (例如某角色的真实身份、某神秘事物的来历、某历史事件的全貌), **默认不写 thread** — 它们没有"X 在某事件发生时算 resolved" 的具体条件。只有当某**具体调查行动**已启动 (例如角色明确委托别人去查某具体目标), 才写"<角色>调查 <具体目标>"的 thread (有 resolve 条件: 调查结果交付), 而不是泛指的"某事真相"。
-- **角色获得新道具 / 新信息但未明确启动后续行动 ≠ thread**。道具进 character_sheet.inventory, 信息进 event prose; 只有角色因此**承诺 / 立誓 / 委派出去做具体后续行动**才是 thread
-- **当前场景下马上要做的事 ≠ thread**。本批次决定下一刻去做某事, 下一个 batch 就会做, 不需要 thread 跟踪。thread 是"跨多个 batch 才会被触发或解决"的持续状态
-
-判定测试 (写 thread 前必跑): 我能写出一个具体的未来 event 描述, 该 event 发生时这个 thread 就明确 resolve 吗? 写不出来 → 不写 thread。
-
-#### thread 字段规则
-
-- **title** ≤ 10 字, 名词性短语。**禁止**形容词+名词的 AI 自造标签 (如"X 式合约"、"神秘 X 任务")。
-  - **title 必须明确编码 resolution 条件** — 把 title 当成一个问题, 后续 event 能直接回答 是/否, 已达成。
-  - 写 title 时检查: 名词 / 动词中是否能指向**一个具体未完成动作或状态**。能 → 写; 只能指向模糊领域 → 改写。
-  - 模糊词反 pattern (会变成 stale thread): "X 的邀约", "X 的事情", "X 线", "X 之谜" — 动作 / 范围未限定, 模型不知道 resolved 的具体触发点。改写为指向**具体未完成动作**的形式: 把 "邀约" 改成具体应邀完成的事件 ("应邀赴宴"), 把 "事情" 改成具体待发生事件, 把 "线" 改成线索本身的解开节点。
-- **status**: \`active\` (推进中) / \`resolved\` (达成或彻底解决) / \`abandoned\` (永久放弃)。默认 \`active\`。
-- **note** ≤ 80 字: 必须包括 (a) 核心事实, (b) 涉及的关键角色, (c) **resolution 条件** (本 thread 在什么具体事件发生时算 resolved)。
-  - 写完后用 resolution 条件做反查: 给定一个未来 event, 模型能不能机械判定它是否 resolve 了这个 thread? 不能 → resolution 条件不够具体, 重写。
-
-#### Thread EDIT / status 变更触发
-
-- 本批次任一 event 推动 active thread 推进 → EDIT, 更新 note。
-- 本批次任一 event 实质上解决/达成 active thread → EDIT status=resolved, note 简短交代如何解决的。
-- 本批次某 active thread 涉及的剧情线被角色明确放弃 / 主线推进让它彻底失效 → EDIT status=abandoned。
-- **resolved/abandoned 之后**, 即使后文重启 (例如曾被解决的复仇线又被触发), 也是**新建一个新 thread**, 不是把 resolved 的改回 active。
-
-#### Thread 反 pattern (出现即砍)
-
-- 把抽象主题写成 thread (例: "感情线"、"成长线")
-- 把单次完成的事件包装成 thread (例: 本批次就杀了某 boss, 是 event 不是 thread; 只有"在追击但还没杀"才是 thread)
-- 把 character_sheet.goal 包装成 thread (例: 角色 baseline 就想统治宇宙)
-- 给某场景留下临时印象升华成 thread (例: "某地的神秘氛围")
-
-## Tool call mechanics
-
-- 工具是 dynamic. 各类型暴露 create/edit/delete; 某些类型可能只有 create.
-- Use create for 新节点, edit for 已存在 node_id 的 patch update, delete for 显式删除。
-- Edit 时, set_fields 只包含变更的列, 不重发整行。
-- 不要 fabricate node_id. 不在 graph_data.nodes 的 id → 创建新节点不带 node_id。
-- Editability rule: 只有 graph_data.editable_type_ids 里的类型可以 edit/delete。其他类型只能 create。
-
-### Name / alias format (硬要求)
-- character/location node name: canonical plain name only. 禁止括号、斜杠、双语对、追加解释 (例如禁止 "张三(John)" "Alice(爱丽丝)" "London(伦敦)")。
-- aliases: 英文名 / 翻译名 / 昵称 / 称号 / 短名 / 其他拼写, 全放在 aliases (但需通过 aliases 写入硬门槛检查)。
-
-### Edge mechanics
-- Canonical relations only (见 [3]).
+// Edge rules: canonical relation vocabulary, edge judgement and delete
+// justification. Unit of its own so one statement serves every caller that
+// needs the edge contract.
+export const DEFAULT_EXTRACT_EDGE_RULES = `### Edge mechanics
+- 只用规范关系类型；可选值见链接工具的 relation 参数。
 - Internal edge prohibition: 不要创建 contains 或 semantic_contains; 这些由系统管理。
 - 链接 target: 用 target_ref (本批次新建的 ref) 或 target_node_id (已存在的 id), 不要用 title 匹配。
-- 创建即链接: 如果新节点需要链接, links 写在 create 调用里, 不要延后。
+- 每条计划的边写成 from → relation → target 并附 seq 证据。
+- 删边必须以 seq 证据说明理由 (关系解除 / 债务清偿 / 誓约破裂)。
+- 本轮新节点与已有节点的关系在本轮确定。
 
 ### Relation type discipline (硬约束 — 用错类型 = planning error)
 
@@ -800,21 +502,66 @@ universal 模式:
 #### Symmetric relations (allied_with / hostile_to / family_of / partner_of)
 - 这四种关系是**天然对称**的 (A allied B ⇔ B allied A 是同一件事)
 - **只写一条 edge**, 不要写两条 (即不要既写 A→B 又写 B→A 的同类型边)
-- **方向选择**: 用 \`direction: bidirectional\` (默认), 系统会自动按 node_id 字典序规范化存储一条边
-- 算法层会自动按对称语义处理 (满电导双向扩散), 你不需要写双向边来"提示"系统
+- **方向选择**: 用 \`direction: bidirectional\` (默认)
 - 其他关系 (sworn_to / debt_owed_to / mentor_of / deceiving) 有明确方向, 按动作发出者→接受者写一条
+`;
 
-## Event summary time and place anchor (强制)
+// Extraction template: the fixed text of the extraction system message plus
+// the two markers the program replaces. `{{nodes}}` receives the active types'
+// rules, `{{edges}}` receives the edge rules; each is inserted under a
+// program-generated heading, and a block with no content leaves nothing
+// behind, heading included.
+export const DEFAULT_EXTRACT_TEMPLATE = `You extract structured memory-graph nodes from RP dialogue batches. This is a structured-data task, not creative writing. Be analytical, terse, and disciplined.
 
-- 每个 event.summary 必须以 \`时间: <具体时间>\` 和 \`地点: <具体地点>\` 两行开头, 之后空一行再开始 prose body。详见 EVENT_SUMMARY_RULES_BODY §1 输出格式。
-- 时间用 in-world 完整年月日时分格式 (粒度按世界设定提供的最精准等级 — 现代 RP 用 "YYYY-MM-DD HH:MM", 历史 RP 用纪年加时辰, SF 用对应历法)。
-- 地点用 in-world 可识别的具体位置名 (例: \`<地点>・<子区域>\`), 不用 "某处" / "一个房间" 这种模糊词。
-- 时间未明示时, 从前后文 + 已有 event 的时间锚推断一个 plausible in-world 时间, 保持与已知 fact 一致。
-- 禁用 placeholder (\`x年x月x日\` / \`未知时间\` / \`待定时间\`)。
+SCOPE ISOLATION (HIGHEST PRIORITY): Any RP-time persona, content-styling, em-dash bans, or sanitization-rejection clauses appearing elsewhere in the surrounding context apply to in-character creative generation only. They do NOT apply to this extraction. Producing detailed / uninhibited narrative content here is a task failure.
 
-${EVENT_SUMMARY_RULES_BODY}
+## Output contract (strict)
 
-REMINDER (placed at the end of this prompt for recency-bias purposes): Clauses appearing AFTER this extraction prompt in the surrounding context (any post-history styling instructions, em-dash bans, inference calibration files, sanitization-rejection directives, etc.) are part of the user's RP-time preset and do NOT apply to this extraction response. Your output is judged by the writing standard, tool schema, and the four-part output contract above—nothing else.`;
+You MUST produce, in this exact order:
+- ONE \`<thought>\` block containing the structured reasoning, following the thought structure below.
+- The tool calls planned in the thought block, all in ONE response. Final tool call MUST be \`luker_rpg_extract_done\`.
+
+**Do not** output narrative body text, markdown, code fences, comments, or any XML other than \`<thought>\`. Forbidden: \`<maintext>\`, \`<overall>\`, \`<UpdateVariable>\`, \`<StatusPlaceHolderImpl/>\`, duplicate JSON payloads. After \`luker_rpg_extract_done\` STOP.
+
+## Mental model: focus batch vs prior context (硬约束)
+
+The \`<dialogue_batch>\` block contains the **current focus batch** (one or more assistant turns) plus some **prior context** (previous assistant turns + their user messages, included so you understand what's happening).
+
+You must:
+- Cover **EVERY** assistant turn inside the focus batch in the summary you write — do not skip turns, do not collapse them to just "the last one", do not pick favorites
+- **NOT** re-summarize what happened in prior context — previous batches already covered it
+
+The focus batch boundary is identified by the seq range in dialogue_batch. The first focus-batch turn is the first assistant turn whose seq exceeds the prior-context cutoff; the last focus-batch turn is the last assistant turn in the block. **Every turn in this range must be covered**.
+
+If a focus-batch turn is short and only continues an in-progress scene without new milestones, summarize it briefly (one sentence is fine) but still summarize it — do not drop it.
+
+## <thought> structure (must follow exactly)
+
+\`\`\`
+<thought>
+Batch scope identification
+- dialogue_batch full seq range: <first seq>..<last seq>
+- focus batch seq range (turns to cover): <focus first seq>..<focus last seq>
+- prior context seq range (NOT to be re-summarized): <prior first seq>..<prior last seq> (or "none" when there is no prior context)
+
+{{nodes}}
+
+**Dedup roll-call (硬约束)**: Before ANY create/edit decision, list each candidate entity by name with:
+  \`\`\`
+  类型: <该实体所属的节点类型>
+    证据 seq: <支撑该决定的 seq>
+    graph_data 检索: title 精确匹配 = <node_id> / aliases 重叠 = <node_id 或 (无)>
+    决定: CREATE / EDIT <node_id> / SKIP (原因: ...)
+  \`\`\`
+Direct create without appearing in roll-call → response is invalid, regenerate.
+
+{{edges}}
+
+Planned tool calls in execution order (ref declarations before any link using them; \`luker_rpg_extract_done\` last).
+</thought>
+\`\`\`
+
+If \`<thought>\` misses any required section, treat your own response as invalid and regenerate fully.`;
 
 // Event-compression instruction. Goes into the event schema's
 // compression.summarizeInstruction; used when N child events are folded into
@@ -906,7 +653,7 @@ Adjust your **resolution** based on rollup_depth:
 ### Step 5: 时间区间一致性
 rollup 的时间锚必须覆盖 N children 时间联合 (最早 → 最晚)。
 
-### Step 6: 输出最终 outline (rollup 用 outline 格式, **不**走 leaf 的 prose+sections 格式)
+### Step 6: 输出最终 outline
 
 \`\`\`
 时间: <最早时间锚> 至 <最晚时间锚>;
@@ -914,7 +661,7 @@ rollup 的时间锚必须覆盖 N children 时间联合 (最早 → 最晚)。
 2) ...
 \`\`\`
 
-注: 叶子 event 使用 prose body + 可选 section 格式 (见末尾的 EVENT_SUMMARY_RULES_BODY)。**rollup 不是叶子, 仍然使用上面的 outline 格式**——rollup 的职能是"故事至今的提纲", 进入持久注入路径, 需要密度高、易扫读, 不需要 prose 的叙事连贯性。
+注: rollup 使用上面的 outline 格式——它的职能是"故事至今的提纲", 需要密度高、易扫读。
 
 ## 自检 (commit 前最后一遍, 任一 FAIL → 回 Step 4 重写)
 
@@ -922,10 +669,10 @@ rollup 的时间锚必须覆盖 N children 时间联合 (最早 → 最晚)。
 - [ ] **时间锚覆盖 children 时间联合**
 - [ ] **不可逆里程碑都承载了** (失贞/怀孕/告白/决裂/获赠关键物品/死亡/章节级转折)
 - [ ] **重叠去重**: 同一底层事件在 rollup 中只出现一次
-- [ ] **paraphrase 残留扫描** (见末尾 EVENT_SUMMARY_RULES_BODY §4.1)
-- [ ] **AI 自造标签扫描** (§4.6)
-- [ ] **契约词族扫描** (§4.4)
-- [ ] **升华套话扫描** (§4.5)
+- [ ] **paraphrase 残留扫描**
+- [ ] **AI 自造标签扫描**
+- [ ] **契约词族扫描**
+- [ ] **升华套话扫描**
 - [ ] **位移/铺垫条目扫描**: rollup 里不该单独出现"X 返回 Y" "X 准备 Z" 这种 — 应该被吸收到下一个真事件
 - [ ] **临时角色任命扫描**: rollup 里不应出现"大堂经理 / 临时管家 / 客串店员"这种临时身份的条目
 - [ ] **跳窗扫描**: rollup 时间窗有没有比 children 时间联合短? 有 → 补回去
@@ -938,50 +685,108 @@ rollup 的时间锚必须覆盖 N children 时间联合 (最早 → 最晚)。
 
 Factual constraint: only include events within the seq range of the child nodes. Never write events from later seq numbers, never continue the story.
 
-**末尾 EVENT_SUMMARY_RULES_BODY 是 leaf event 的写作规范, 同时也是 rollup 必须遵守的*写作纪律* (§4 的 10 类黑名单 / §2.1 颗粒度准则 + §2.2 心理 A/B/C 分类 + §2.3 单句删除测试 的精神 / §3 的"默认空"心态)。rollup 的输出**格式**不是 prose+sections (那是 leaf 的格式), 而是上面 Step 6 的 outline 格式; 但**纪律**完全套用**: 黑名单一字不漏, prose 的反 bloat 三层判据精神 (颗粒度 default 一句过场 + 心理 C 类必砍 + 单句删除测试) 同样适用于 outline 条目的去留。**
+## 写作纪律
+
+黑名单 (出现即重写): paraphrase 残留 (角色当场说出口的临时词 / 戏称 / 口头禅 / 临时身份称呼); 元叙述与钩子词 (钩子 / 伏笔 / 铺垫 / 埋下 / 暗示 / 预示 / 为后续); 现场事件命名与升华副词 (正式 / 终身 / 首次 / 彻底 / 标志着 / 宣告归属); 契约词族 (契约 / 誓约 / 凭证 / 条款 / 缔结 / 兑现); 升华套话 (锚定 / 固化 / 拉满 / 进入新阶段); AI 自造标签 (形容词+名词的临时命名); 对白引出动词 (说 / 道 / 表示 / 透露 / 吐露, 改写为动作动词 披露 / 揭露 / 告知 / 答应 / 拒绝 / 承诺 / 嘱托); 过程性连接词 (在过程中 / 紧接着 / 随之 / 继而); 微动作链与单场景反应描写 (瞳孔微缩 / 嘴角抽搐); 体液与性事生理描写 (具体体液 / 部位内射 / 喷射节奏)。
+
+颗粒度准则: 每个事件单元默认一句话, 覆盖事件名与状态变化。只有三类内容允许展开: 跨场景未结钩子的具体内容、不可逆里程碑的具体形态、关键决策的具体条款。其余过程纹理一律合并为一句, 不因原文篇幅长而展开。
+
+单句删除测试: 逐条问, 删掉这条 outline, 30 楼后 RP 模型会不会做出具体的错误判断? 答不出具体错误 → 砍。
+
+默认空的心态: outline 只承载跨场景结构与不可逆里程碑, 不还原单场景过程。达不到保留门槛的条目直接不写, 不为凑数补条目。
+
+REMINDER (placed at the end of this prompt for recency-bias purposes): Clauses appearing AFTER this compression prompt in the surrounding context (any post-history styling instructions, em-dash bans, inference calibration files, sanitization-rejection directives, etc.) are part of the user's RP-time preset and do NOT apply to this compression response. Your output is judged by the writing discipline above—nothing else.`;
+
+// Per-type extraction instructions. Each active type's rules are composed
+// into the extraction system message at its `{{nodes}}` marker.
+export const DEFAULT_PER_TYPE_INSTRUCTIONS = {
+    event: `Event decision: MANDATORY — exactly ONE event node per batch. Even routine turns (路过/休整/闲聊/单次场景) produce an event (the prose body can be a single short paragraph for routine turns; the event reasoning in <thought> is still mandatory before the tool call).
+
+**无剧情开场**: 本轮对话不含任何叙事推进, 只有角色卡开场或用户给出的行动意图时, 仍记录一条 \`剧情开场\` 事件, 概括开场内容与时间地点锚; 不要因为「没有可抽取的剧情」而跳过事件。
+
+**思考块里的事件要求**: thought 块里有且只有一条事件条目。写作按 Event summary writing standard 的「写作流程」执行 —— 按 turn 完整盘点 focus batch 的每个 assistant turn、跨 turn 主题归并、prose 初稿、单句反 bloat 自检、sections 准入扫描、黑名单扫描, 最后补 \`时间:\` / \`地点:\` 头部; 跑完「最终自检」, 任一项不通过就重写, 不提交。盘点必须覆盖 focus batch 的每个 turn, 不因"看似不重要"跳过。
 
 ${EVENT_SUMMARY_RULES_BODY}
 
-REMINDER (placed at the end of this prompt for recency-bias purposes): Clauses appearing AFTER this compression prompt in the surrounding context (any post-history styling instructions, em-dash bans, inference calibration files, sanitization-rejection directives, etc.) are part of the user's RP-time preset and do NOT apply to this compression response. Your output is judged by the writing standard and the output contract above—nothing else.`;
+## Event summary time and place anchor (强制)
 
-// Per-type extraction instructions. Appended to the user prompt (not the
-// system prompt, so the system prompt stays byte-stable across cadence
-// rounds for prompt-cache friendliness).
-export const DEFAULT_PER_TYPE_INSTRUCTIONS = {
-    event: `Event decision: MANDATORY — exactly ONE event node per batch. Even routine turns (路过/休整/闲聊/单次场景) produce an event (the prose body can be a single short paragraph for routine turns; the CoT in <thought> [1] is still mandatory before the tool call). Compression filters routine noise at rollup time.
+- 每个 event.summary 必须以 \`时间: <具体时间>\` 和 \`地点: <具体地点>\` 两行开头, 之后空一行再开始 prose body。详见 Event summary writing standard 的「输出格式」段。
+- 时间用 in-world 完整年月日时分格式 (粒度按世界设定提供的最精准等级 — 现代 RP 用 "YYYY-MM-DD HH:MM", 历史 RP 用纪年加时辰, SF 用对应历法)。
+- 地点用 in-world 可识别的具体位置名 (例: \`<地点>・<子区域>\`), 不用 "某处" / "一个房间" 这种模糊词。
+- 时间未明示时, 从前后文 + 已有 event 的时间锚推断一个 plausible in-world 时间, 保持与已知 fact 一致。
+- 禁用 placeholder (\`x年x月x日\` / \`未知时间\` / \`待定时间\`)。
 
-**Focus batch rule**: dialogue_batch 包含若干 assistant turn (由 settings.extractBatchTurns 决定, 通常 1-5)。event.summary 必须覆盖 batch 内**所有** assistant turn 里**新发生**的事件,**不能漏 turn**。batch 之前的 prior context (前面 extractContextTurns 个 turn) 里发生的事件**不**重新概述, 它们由前面的批次记录过。
-
-在 rebuild + batch>1 模式下尤其重要: batch 里每个 turn 都是当前需要摘要的内容, 不允许把"focus" 理解为"只有最后一个 turn"。EVENT_SUMMARY_RULES_BODY §5 Step 1a 的 turn 完整盘点是硬约束。
-
-**One event per batch (not per turn)**: 一个 batch 内所有 turn 的事件全部合并到一个 event.summary 的 prose body 中, **不**为每个 turn 单独 emit 一个 event。多 turn 跨越的同一线索由 §5 Step 1b 的主题归并整合; 不同主题在 prose 里分段呈现。
-
-**Output format is prose + optional structured sections, NOT an outline**. See the event summary writing standard for the exact layout and the three section types (不可逆 / 未结 / 原文摘录, all default empty). The standard governs every aspect: prose body sentence-justification, section admission, blacklists. Follow it.
+**Output format is prose + optional structured sections, NOT an outline**. See the Event summary writing standard's 「输出格式」section for the exact layout and the three section types (不可逆 / 未结 / 原文摘录, all default empty).
 
 **Never copy quoted dialogue verbatim into the prose body** — and never paraphrase it within "动词+宾语" of dialogue keywords. Use action verbs alone (告白/承诺/披露/拒绝/嘱托); concrete decision content (条款 / 代价 / 承诺内容) belongs in the prose body itself, written in your own words.
 
-**Cross-scene foreshadows belong in thread nodes**, not in the event prose. If this batch contains a future-pointing commitment / hunt / wait / promise, emit a corresponding thread node and reference it from the event's \`未结\` section as \`→ thread "<title>"\`. The \`未结\` section line and the thread node are bound: one without the other is wrong.`,
+**钩子判定规则**: 钩子是指向未来的、具体的、未完成的动作或状态, 不是氛围, 不是信息更新, 不是本场景内就要完成的事; 判据是能否写出一个具体的未来事件来解除它。本批次的跨场景钩子写进 event 的 \`未结\` section, 每行一条 \`→ thread "<title>"\`, 不写进 prose body。`,
 
-    character_sheet: `Character decision: SKIP unless the character's **long-term** traits / identity / goal / aliases changed this batch. Apply the 24-hour persistence test before any write.
+    character_sheet: `Character decision: SKIP unless the character's **long-term** traits / identity / goal / aliases changed this batch. Apply the 24-hour persistence test before any write: if you write field F=V, will F still be V (or a refinement of V) after the story-time advances 24+ hours and the next scene starts? If no → SKIP, route to event.summary instead.
 
 Character consistency rule: if a character is grounded by card/world-info baseline and no character_sheet exists for them, create one (this gates the baseline). If an existing sheet conflicts with baseline, emit edit to align.
 
-**临时角色禁入 identity / aliases**: 单次场景的临时身份 (临时大堂经理 / 临时管家 / 客串值班 / 路过的医生 / 出场客串某身份) → 一律 SKIP, 这些**也不在** event.summary 的 prose body 里被反复指代 (见 EVENT_SUMMARY_RULES_BODY 的 Temporary roles 段)。identity 字段只写**长期身份** (国家公职 / 长期职业 / 长期组织归属 / 与主角的长期关系定位 / 修为境界)。
+**Temporary roles MUST NOT enter identity / aliases**: 临时管家 / 临时大堂经理 / 客串店员 / 路过的医生 / 单次扮演的某身份 → 这些**绝不进** identity 或 aliases。
 
-**alias 写入硬门槛**: aliases 字段**仅**用于以下三类:
-1. **官方在世界设定中给该角色的固定别称 / 代号 / 译名 / 双语名** (例: 角色卡里就声明的 "Codename: X" 或 "汉名: 张三, 洋名: John")。
-2. **角色在剧情中获得的、被多个 NPC / user 反复使用的稳定昵称** (门槛: 至少在 3 个独立场景被使用)。
-3. **该 user 在用户输入消息中反复 (≥3 次, 在多个不同的 user 消息里) 使用的稳定独特称呼** (这是允许用户层面语言习惯进入 aliases 的唯一通道)。
+如果该角色只在本场景出现且后续不会再出现, 不需要为他创建 character_sheet。如果该角色在本场景表现出与剧情相关的内容并且可能在后续场景仍然出现, 则**为他建 character_sheet**, identity 字段写他的长期身份 (而不是当前场景的临时职务), 不要让临时职务变成持久性记忆的入口。
 
-**禁止进 aliases**: 单次场景里某 NPC 临时叫的戏称、单次撒娇的临时叫法、第一次见面时一个 NPC 用的形容性称呼 (例如 "粉发小姐" "蓝瞳男" "美女" 这种描述性称呼)、user 在某一次 user message 里临时蹦出的玩笑昵称 (但下一次没用)。不确定 → 按禁止处理, 不进 aliases。
+**Stable identity ALLOWED**: 国家公职 / 长期职业 / 长期身份 / 修为境界 / 与主角的长期关系定位 (后宫成员 / 师徒 / 兄弟) / 长期组织归属。
 
-**addressing_user 字段**: 该角色对 user 的**稳定**称呼方式。单次场景的称呼变化 (撒娇模式临时改叫法、情绪激动临时叫法) 不写, 只有当该称呼跨多个场景反复出现才写。
+**identity 字段绝对禁止 (硬约束)**:
+- **元叙述标签**: 任何把角色定位为"剧情功能" 的描述, 包括 "原创主角" / "原作主角" / "主角" / "配角" / "反派" / "NPC" / "重要角色" / "boss" / "原创青年" (含 "原创" / "原作" 修饰的任何身份称谓) — 都整类砍。该角色在故事内不会自称这些, 这些是 meta-narrative 标签
+- **外貌描述**: 发色 / 瞳色 / 身高 / 年龄段 / 性别 / 体型 (灰发金瞳少女 / 粉发蓝瞳少女 / 黑发青年 / 紫红长发紫瞳的女性 等模板)。**这些走 baseline 描述或 traits 字段, 绝不进 identity**。identity 字段绝不写外貌。再说一遍: 看到自己想写"X 发 Y 瞳" 时, 立即砍掉
+- **短期状态作为身份**: 短期处境 (刚加入某组织 / 暂住某地 / 目前持枪戒备 / 临时承担某职务) 这类只在本场景或近几场景内成立的状态, 都不进 identity, 它们是 event-territory。即使该状态当前仍在持续但属于会改变的处境而非永久身份 (例如某种当前状态: 中毒中 / 通缉中 / 受伤养病中 / 隐藏身份扮演他人中 等), 也归 event-territory, 不进 identity
+- **自称 / 调侃式定位**: 任何 "自称 X" 形式的描述 — 这是角色当下的台词包装, 不是 identity。看到 "自称" 立即砍掉
+- **单 fact 描述**: 单一历史事件 / 财产 / 名字来源等具体琐碎 fact — 这些不是身份。如果该 fact 形成长期人物标签 (例: 角色被多场景公认为"挥霍狂"), 那可以进 traits; 否则丢 event
+- **本批次刚发生的角色变化**: 如果该变化在 24h 内仍然 fluid (例: 临时被指派某职务但未确认长期), 一律 SKIP, 等下次场景该身份仍然成立再写
+- **多个身份硬塞一句**: identity 是一个角色 in-world 的"长期身份证", 应该简洁。不要把"职业 + 出身 + 现状 + 与主角关系"全写一句。挑最稳定、最定义性的写。
+
+**identity 字段允许的写法 (类型示意, 不是模板)**: 长期职业 (调度员 / 治愈师 / 黑客 / 学生 / 律师 / 商人 / 王后), 长期组织归属 (某队伍成员 / 某公会会员 / 某军团士兵), 长期身份角色定位 (主角的恋人 / 兄长 / 师父 / 仇敌 / 后宫成员), 修为境界 / 等级 (七境大乘 / 五段位 / SS 级)。这些都是 in-world 长期标签, 经得起"24h 后再叙述这角色, 这条还成立吗?"测试。
+
+**alias 写入硬门槛**: aliases 字段只用于**跨场景持久存在**的称呼 — 它的判据由两个维度组成:
+
+(A) **来源**: 是 user 输入里反复使用的, 还是只在 AI 写的 NPC 对白里出现?
+(B) **持久性**: 这个称呼是绑定特定单场景的 (大堂里管前台叫"经理"), 还是脱离单场景仍然成立的 (user 一贯叫某 NPC "猫娘" / "飞机杯" / "老婆")?
+
+四象限:
+- A=user 输入 + B=跨场景 → **必须写**。这是 user 自己确立的稳定语言习惯, 后续 user 大概率继续这样叫, 写进 aliases 让正文 LLM 在描写该角色时自然带上这个称呼, 维持沉浸感
+- A=user 输入 + B=单场景绑定 → 不写。user 临时蹦出的玩笑昵称、被场景情绪带出的临时叫法, 下次场景不会用
+- A=AI 写的 NPC 对白 + B=跨场景 → **慎写**, 仅当该称呼是世界设定层面的固定别名 (官方代号 / 译名 / 双语名 / 至少 3 个独立场景被多个不同 NPC 使用) 才写。普通的 NPC 形容性称呼 (描述外貌的"粉发小姐", 描述身份的"客人 / 旅人") 不写
+- A=AI 写的 NPC 对白 + B=单场景绑定 → 绝对不写。这是污染源头。即使这个称呼在当前场景反复出现 (同一场景里多次"经理"), 只要它绑定该场景的临时角色身份, 跨场景没意义, 一律 SKIP
+
+**operational rule for distinguishing 持久 vs 临时**:
+- 这个称呼是**指向该角色的人物本质 / user 与该角色的稳定关系**, 还是**指向该角色当前所处场景的临时身份**?
+  - 指向人物本质 / 稳定关系 → 跨场景
+  - 指向当前场景的临时身份 (大堂经理 / 临时管家 / 路过的医生 / 客串店员) → 单场景, 不写
+- 不确定 → 按"单场景"处理, 不写; 等下次场景该称呼再次出现且仍然成立时再写
+
+**判定测试**: 想象故事时间往后推 1 周, 角色已经离开当前场景去了完全不同的环境, 这个称呼还会被 user 或熟悉的 NPC 用来指代该角色吗? — 会 → 写; 不会 → 不写。
+
+允许的现有三类:
+1. **官方在世界设定中给该角色的固定别称 / 代号 / 译名 / 双语名** (角色卡或世界书里就声明的)
+2. **角色在剧情中获得的、被多个 NPC / user 反复使用的稳定昵称** (门槛: 至少在 3 个独立场景被使用)
+3. **该 user 在 user 输入消息中反复 (≥3 次, 在多个不同的 user 消息里) 使用的稳定独特称呼** — 这是允许用户层面语言习惯进入 aliases 的主要通道, 也是上面 "A=user 输入 + B=跨场景" 象限的 operational 形式
+
+**禁止进 aliases**: 单次场景里某 NPC 临时叫的戏称、单次撒娇的临时叫法、第一次见面时一个 NPC 用的形容性称呼 (描述外貌 / 描述当前场景临时身份)、user 在某一次 user message 里临时蹦出的玩笑昵称 (下一次没用)。
+
+**aliases false-positive 防护 (硬约束)**:
+- **不要从复合词 / 组织名 / 地名里抽 substring 当 alias**。例如某角色名 "X" 出现在某组织名 "X 联盟" 里, 不代表 "X 联盟" 是 X 的 alias; 某地名 "Y 城" 不是 Y 居民的 alias; 某角色名出现在一个剧情节点名里, 那个节点名不是该角色的 alias。判定: 该字符串是否曾被某人作为**指代该角色个体的称谓**单独使用过? 没有 → 不写
+- **必须有 ≥3 个独立场景的直接称呼证据**才能 ADD aliases。看到自己想 ADD 时, 强制问自己: 我能数出至少 3 个独立场景, 每个场景里都有人用这个称呼指代该角色吗? 数不出来 → 不写
+- **不确定 → 按禁止处理**。aliases 误写的代价 (污染下游 RP 反复使用) 远高于不写的代价 (下游用本名指代仍然正确)
+
+**addressing_user 字段**: 该角色对 user 的**稳定且有独特性**的称呼方式。判据:
+- 跨场景持久 (该 NPC 在多个场景都用这个称呼指代 user) **且** 称呼有**独特性** (不是直接叫 user 角色名 / 不是通用代词 "你") → 写
+- 单场景临时 (撒娇模式临时叫法、情绪激动临时叫法、单场景里被场景情境带出的临时尊称) → 不写
+- **NPC 只是直接叫 user 的角色名 / 用通用代词 (你 / 您)** → SKIP, addressing_user 留空。这是 default behavior, 不需要显式记录。这个字段只在称呼**与 user 角色本名不同且有持续性辨识度**时才写 (例: 带关系定位的称呼 — "主人" / "老大" / "哥哥" / "公子", 或带情感色彩的特定昵称)
+- 不确定 → 按"无独特性"或"单场景临时"处理, 不写; 等下次场景再次出现且仍然成立时再写
+
+**与 aliases 对偶**: 这个字段记录的是 NPC 怎么称呼 user, 等价于 aliases 记录的是别人怎么称呼该 NPC。两个字段用同样的"持久性 + 来源"判据,只是看的方向相反。
 
 **traits 字段写入门槛 (cross-scene 稳定性, 不是颜色浓度)**: 唯一判据是 该 trait 是否跨多场景稳定成立 —— 是 → 写。**不要因为某 trait 听起来 RP 味浓就砍**: 像 口嫌体正直 / 护短 / 毒舌 / 傲娇 / 病娇 / 腹黑 / 强迫症 / 完美主义 这种带颜色的 disposition 描述, 只要在 ≥2 个独立场景被同类行为佐证, 就是合规 trait, 必须写。
 
 **禁止**的只有两类:
 1. **state-dependent 临时描述** (带条件修饰): 中毒后反应迟缓 / 宿醉中沉默 / 伤后易怒 / 通缉中谨慎 — 这些是 state, 状态消失后 trait 也消失, 不写。
-2. **单批次单证据**: 仅凭某一次对话片段就推断的 trait — 至少需要 2 次同类行为才能写。
+2. **单批次单证据**: 仅凭某一次对话片段就推断的 trait (角色一次问了个字面化问题就写"字面理解一切") — 至少需要 2 次同类行为才能写。
 
 判定测试: 把 trait 写出来后, 问 如果故事时间往前推 30 天 / 往后推 30 天, 这个 trait 还成立吗? — 成立 → 写; 不成立 → 是 state, 不写。
 
@@ -989,31 +794,27 @@ Character consistency rule: if a character is grounded by card/world-info baseli
 
 language_sample 是给下游 RP 模型的**声纹采样**, 让模型能复刻该角色的具体语言风格。允许两种形式, 也允许混用:
 
-- **风格描述 + 句式特征**: 公关式精确措辞, 句尾常用...表达留白; 私下亲密时改用短句和呢称; 战斗时短促命令式
+- **风格描述 + 句式特征**: 公关式精确措辞, 句尾常用...表达留白; 私下亲密时改用短句和呢称; 战斗时短促命令式 + 偶有黑色幽默
 - **代表性对白引用 (≤3 段, 每段 ≤30 字, 带场景标签)**: "[公务] 听我说, 这件事我已经决定。 / [亲密] 笨蛋, 别离我太远。 / [战斗] 退后, 让我来。"
 
 **稳定性硬锁 (核心, 防止每轮被场景污染)**:
 - 已记录的 sample **只在角色经历身份/立场层面的根本转变时**整组重写: faction switch / brainwashing / awakening / 长期角色转型。
-- **单次场景内的语气波动不算变更**, SKIP。
-- 新场景与所有已记录场景**显著不同** (政治演讲 vs 私下亲密 vs 战斗紧张) 才能 ADD 第 4 段, 但总数仍 ≤ 3。
+- **单次场景内的语气波动不算变更**, SKIP, **不**追加、**不**修改。例: 平时高冷的角色这一场战斗里骂了句脏话 → SKIP, 不加 "[战斗] 草" 进 sample。
+- 新场景与所有已记录场景**显著不同** (政治演讲 vs 私下亲密 vs 战斗紧张) 才能 ADD 第 4 段, 但总数仍 ≤ 3 (若已 3 段, 移除最不典型的那段再 ADD)。
 - 已记录的对白引用片段, **不要**在下个 batch 顺手优化 替换成本批次的新台词 — 那是污染, 不是更新。
 
-**追加判定**: 写入 / 编辑 sample 前必跑 dedup 检查 — 本批次想加 / 改的 sample 内容, 跟现有 sample 描述的场景类别 (公务 / 亲密 / 战斗 / 谈判 等) 重叠吗? 重叠 → SKIP。
+**追加判定**: 写入 / 编辑 sample 前必跑 dedup 检查 — 本批次想加 / 改的 sample 内容, 跟现有 sample 描述的场景类别 (公务 / 亲密 / 战斗 / 谈判 等) 重叠吗? 重叠 → SKIP; 不重叠 + 显著新场景 → 才允许 ADD。
 
-为什么允许引用样本: 纯抽象描述 (沉稳从容) 无法保留角色辨识度, 多个角色会被洗成同一种 沉稳。
-为什么有严格稳定性锁: 没锁的话 sample 会每轮被当前场景台词覆盖, 几十轮后就只剩本场景对白。
-
-只在身份/立场反转 (faction switch / brainwashing / awakening / 长期角色转型) 时整组重写。同一场景类别下的 tone 变化不写。新场景与所有已记录场景**显著不同** (政治演讲 vs 私下亲密) 才能 ADD, 上限 3 条。
+为什么允许引用样本: 纯抽象描述 (沉稳从容) 无法保留角色辨识度, 多个角色会被洗成同一种 沉稳。带具体台词的样本能给下游 RP 模型可模仿的骨架。
+为什么有严格稳定性锁: 没锁的话 sample 会每轮被当前场景台词覆盖, 几十轮后就只剩本场景对白 — 完全失去 cross-scene 价值。
 
 **inventory 字段**: 仅记录**剧情关键道具** (信物 / 钥匙 / 长期持有的标志性武器 / 凭证 / 关键技术物品)。**禁止**写普通衣物配件 (手套 / 围巾 / 帽子) 或一次性物品 (本场景拾起下场景丢的临时武器)。如果一个 inventory 项无法指出"它在后续剧情里会被反复触发或具有不可替代的剧情价值", 删掉。
 
-**goal 字段**: 当前贯穿性目标。**短期单场景目标禁止写**。允许的 goal 是**多场景持续的角色驱动力** (复仇 / 守护 / 追寻 / 找回 / 守密 / 求证某事 等类型, 持续跨多个场景)。
+**goal 字段**: 当前贯穿性目标。**短期单场景目标禁止写** (单场景就解决的目标属于 event, 不是 goal)。允许的 goal 是**多场景持续的角色驱动力** (复仇 / 守护 / 追寻 / 找回 / 守密 / 求证某事 等类型, 持续跨多个场景)。
 
-**goal vs trait 区分硬约束**: goal 必须是**未完成的、指向具体目标的、可被某未来事件 resolve 的驱动力**。性格描述 (撩妹成性 / 喜欢挑战 / 偏爱某类型) 是 trait, 不是 goal。判定测试: 该 goal 能写出一个 specific resolution 条件吗? 不能 → 是 trait, 不写进 goal。
+**goal vs trait 区分硬约束**: goal 必须是**未完成的、指向具体目标的、可被某未来事件 resolve 的驱动力**。性格描述 (撩妹成性 / 喜欢挑战 / 偏爱某类型) 是 trait, 不是 goal — 性格不会被某事件 resolve。判定测试: 该 goal 能写出一个 specific resolution 条件 (达成 X / 找到 Y / 杀掉 Z) 吗? 不能 → 是 trait, 不写进 goal。`,
 
-**identity 字段**: 长期身份, 24 in-world 小时后仍稳定。SKIP 临时职责 (服侍员 / 临时随从 / 患者 / 救援对象 / 单次客串身份)。`,
-
-    location_state: `Location decision: SKIP unless **long-term** controller / danger / resources / state changed this batch with 24h+ persistence.
+    location_state: `Location decision: SKIP unless **long-term** controller / danger / resources / state changed this batch. Apply the 24-hour persistence test before any write: if you write field F=V, will F still be V (or a refinement of V) after the story-time advances 24+ hours and the next scene starts? If no → SKIP, route to event.summary or DROP.
 
 "Entering a new location" alone = SKIP. That's event territory. Only create / edit when the location's long-term properties shifted.
 
@@ -1044,11 +845,11 @@ danger 字段: 风险等级 + 主要威胁来源。不写单次访问遭遇的�
 
 aliases 字段: 真正的别称 / 简称 / 双语名 / in-world 通称。不重复 name 字段值; 不把其他子节点名当 aliases 塞进来 (套房 aliases 不应写所属酒店名)。`,
 
-    thread: `Thread decision: **高门槛**, 但**不为零**。默认 SKIP, 但当本批次出现**类别 1/2/3** 之一的钩子时, MUST CREATE。
+    thread: `Thread decision: **高门槛**, 但**不为零**。默认 SKIP, 但当本批次出现跨场景未完成的承诺 / 悬念 / 长期任务之一的钩子时, MUST CREATE。
 
-## 三大类触发模式
+## 触发模式
 
-### 类别 1: 跨场景未完成的承诺 / 誓言 / 嘱托 / 委托
+### 跨场景未完成的承诺 / 誓言 / 嘱托 / 委托
 触发模式: 角色 A 在本批次让 B 做 X (X 涉及具体后续行为, 跨越当前场景), 而 X 在本批次没有立刻兑现。
 
 universal 模式 (任何 RP 都可能出现):
@@ -1057,7 +858,7 @@ universal 模式 (任何 RP 都可能出现):
 - 单次未完成委托 (调查 / 取回 / 传讯 / 暗杀 等具体任务) → CREATE thread, title 锚定任务名
 - 立誓 (复仇 / 守护 / 找回 等带明确目标的誓言) → CREATE thread, title 锚定目标
 
-### 类别 2: 明确的悬念 / 伏笔
+### 明确的悬念 / 伏笔
 触发模式: 本批次留下了一个**未被触发或未被解决的剧情钩子**, 后文 RP 需要记得它才能续接。
 
 universal 模式:
@@ -1066,7 +867,7 @@ universal 模式:
 - 已发生但尚未被发现的状态 (被通缉但仍未被抓 / 已死但未被发现 / 已混入但未被识破) → CREATE thread, title 锚定该状态
 - 已埋下但未触发的机关 / 线索 / 陷阱 → CREATE thread, title 锚定该机关性质
 
-### 类别 3: 跨多个场景的长期任务 / 目标
+### 跨多个场景的长期任务 / 目标
 触发模式: 主线推进出一个**明确目标 + 跨多个章节才能达成**的任务。
 
 universal 模式:
@@ -1090,7 +891,7 @@ universal 模式:
 - **角色获得新道具 / 新信息但未明确启动后续行动 ≠ thread**。道具进 inventory, 信息进 event prose; 只有角色因此**承诺 / 立誓 / 委派出去做具体后续行动**才是 thread
 - **当前场景下马上要做的事 ≠ thread**。本批次决定下一刻去做某事, 下一个 batch 就会做, 不需要 thread。thread 是跨多个 batch 才会被触发或解决的持续状态
 
-判定测试 (写 thread 前必跑): 我能写出一个具体的未来 event 描述, 该 event 发生时这个 thread 就明确 resolve 吗? 写不出来 → 不写 thread。
+**钩子判定规则**: 钩子是指向未来的、具体的、未完成的动作或状态, 不是氛围, 不是信息更新, 不是本场景内就要完成的事; 判据是能否写出一个具体的未来事件来解除它。本批次的跨场景钩子据此建 thread 节点, 写不出解除它的具体未来事件 → 不建。
 
 ## thread 字段
 
@@ -1104,24 +905,18 @@ universal 模式:
 
 ## Thread EDIT / status 变更触发 (硬约束)
 
-在 [2] 段 dedup roll-call 中, 必须扫描 graph_data 里所有 \`status=active\` 的 thread 节点, 对每一个判断本批次有无:
+在 dedup roll-call 里, 必须扫描 graph_data 里所有 \`status=active\` 的 thread, 对每一个逐项判断本批次有无:
 - **推进** (本批次的 event 推动了该 thread 的进度) → EDIT, 更新 note 反映新进度。
 - **接近解决** (本批次让 thread 更接近达成, 但还没完全达成) → EDIT note。
 - **彻底解决** (本批次实质上完成了 thread 描述的目标) → EDIT status=resolved, note 简短交代如何解决的。
 - **明确放弃** (本批次让 thread 涉及的剧情线被永久放弃) → EDIT status=abandoned。
 - **无变化** → SKIP, 但必须在 roll-call 里写出"SKIP, 本批次未触发该 thread"。
 
+即使本批次不新建任何 thread, 也要为每个已扫描的 active thread 写出 SKIP 决定, 列出已扫描的 thread.id 与 SKIP 原因; active thread 列表为空时写 "active threads: (无)"。
+
 **resolved/abandoned 之后**: 即使后文重启 (例如曾被解决的复仇线又被触发), 也是**新建一个新 thread**, 不是改回 active。
 
-**绝不允许 stale thread** (event 推进了它但 thread.note 没更新)。
-
-## thread 反 pattern (出现即砍)
-
-- 把抽象主题写成 thread (例: "感情线"、"成长线")
-- 把单次完成的事件包装成 thread (例: 本批次就杀了某 boss, 是 event 不是 thread)
-- 把角色卡 baseline 目标当 thread (例: 角色卡里就写"想统治宇宙")
-- 给某场景留下临时印象升华成 thread (例: "某地的神秘氛围")
-- 把瞬间的、单次场景内可解决的紧迫问题当 thread (例: "击退正在入侵的某敌"——这是 event, 入侵不会跨多个章节, 是 event)`,
+**绝不允许 stale thread** (event 推进了它但 thread.note 没更新)。`,
 };
 
 // Crawl-stage system prompt. Runs BEFORE the extraction pass when

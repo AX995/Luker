@@ -66,6 +66,12 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 
 - Fixed Memory Graph schema iteration failing to apply valid node-type edits because the read tool exposed fields the set tool's schema does not accept.
 - Memory Graph extraction and recall retries now show an info toast naming the failure reason: a failed request, an incomplete result, or an invalid result.
+- The extraction prompt is now editable as the **Extraction Template** and **Edge Rules** settings.
+- Rounds without narrative now record an opening event instead of being skipped.
+- Fixed **Force Update** types with a cadence failing every extraction round; the schema editor no longer offers them a cadence.
+- Fixed rejected extraction operations being silently dropped.
+- Fixed the extraction retry message contradicting the validator.
+- Added the **Concurrent extraction** mode, which extracts per active node type in parallel.
 
 ### Iteration Studio
 

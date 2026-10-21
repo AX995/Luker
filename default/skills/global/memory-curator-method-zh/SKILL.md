@@ -167,7 +167,7 @@ metadata:
 - **禁自创状态机标签**: 禁止把角色心理量化成 "XX 态" / "XX 波段" / "XX 消费" 之类自造可枚举术语。写可观察行为, 让下游 LLM 自行解释状态。
 - **禁续写 / 伏笔 / 未来时**: 任何字段 (尤其 summary) 内不出现 "为 X 埋下伏笔" / "暗示后续" / "为后续...预留" / "钩子" 等。只写已发生, 不预测后续 — 后续剧情由下游 LLM 接生成, memory 节点不做未来时预言。如果某事件真的留下了 cross-scene 钩子, 走 thread 节点 + event.summary 的 `未结` section, 不在 prose body 里写 narrator 评论。
 - **专名格式**: character / location 的 `title` 是核心名, 不带势力 / 职位 / 种族前缀, 不含括号 / 双语对照。别名进 `aliases` 列。
-- **Alias 主动收集**: 对话出现昵称 / 短名 / 称号 / 英文名 / 翻译名 / 拼音时, 即便 title 已是规范名, 也要主动 patch 到 `aliases` 列 (`memory_node_edit({ node_id, set_fields: { aliases: [...] } })`, 合并去重)。aliases 是 recall 命中的主路径, 漏收一个就少一条命中通道 — 不要 SKIP (前提是该 alias 通过了 `event-summary-rules-zh` 同步的写入门槛, 见 `default-prompts.js` DEFAULT_EXTRACT_SYSTEM_PROMPT 的 alias 写入硬门槛章节)。
+- **Alias 主动收集**: 对话出现昵称 / 短名 / 称号 / 英文名 / 翻译名 / 拼音时, 即便 title 已是规范名, 也要主动 patch 到 `aliases` 列 (`memory_node_edit({ node_id, set_fields: { aliases: [...] } })`, 合并去重)。aliases 是 recall 命中的主路径, 漏收一个就少一条命中通道 — 不要 SKIP (前提是该 alias 通过了 `event-summary-rules-zh` 同步的写入门槛)。
 - **关系词表**: 只能用 canonical vocabulary —
   - 通用: related, involved_in, occurred_at, mentions, evidence, updates, advances
   - 角色对角色: partner_of, family_of, allied_with, hostile_to (对称); mentor_of, sworn_to, debt_owed_to, deceiving (单向, from 是动作发起方)
@@ -176,7 +176,7 @@ metadata:
   - **禁内部边**: 不要通过 `memory_link_upsert` 创建 `contains` / `semantic_contains` — 层级边由图系统自己管, 不属于语义抽取范围。
 - **关系破裂用 delete, 不用 replace**: 复合关系 (`A→partner_of→B` + `A→deceiving→B` 同时成立) 是合法状态, 不要为了"换"而 delete。只有关系真正不再成立 (分手 / 联盟瓦解 / 债务清偿 / 誓约撤销) 才删边。
 - **Link locator 硬规则**: `memory_link_upsert` 的 target 必须用真实 `node_id` (从 `memory_find_by_name` 命中或本轮 `memory_node_create` 返回值拿到), 禁止用 title 或 type 字符串模糊匹配 — 多个同名节点存在时会粘错。流程: target 已存在 (find 命中) → 用其 id; target 未命中且本轮有该实体参与 → 先 `memory_node_create` 拿到 id 再 link, 不要假设"同名就是同一节点"。漏 link 比错 link 更危险: 对每条有证据的关系都要落地, 即使要先 create 缺失的 target。
-- **language_sample**: 是该角色在不同场景下的稳定说话风格样本, 按场景维度 ≤ 3 个 (例: 工作场景 / 与亲近者私下 / 战斗紧张时)。已记录的样本只在角色经历**身份 / 立场层面的根本转变**时整体重写 (faction switch / brainwashing / awakening / 长期角色转型); 新场景出现且与已记录场景实质不同时可追加 (总数 ≤ 3); **单次场景内的语气波动不算变更, SKIP**。详见 `default-prompts.js` DEFAULT_EXTRACT_SYSTEM_PROMPT character_sheet 段的稳定性硬锁。
+- **language_sample**: 是该角色在不同场景下的稳定说话风格样本, 按场景维度 ≤ 3 个 (例: 工作场景 / 与亲近者私下 / 战斗紧张时)。已记录的样本只在角色经历**身份 / 立场层面的根本转变**时整体重写 (faction switch / brainwashing / awakening / 长期角色转型); 新场景出现且与已记录场景实质不同时可追加 (总数 ≤ 3); **单次场景内的语气波动不算变更, SKIP**。
 - **事件 summary 时间 / 地点头部 (硬规则)**: 必须以 `时间: <具体时间>` 和 `地点: <具体地点>` 两行开头, 之后空一行再开始 prose body。时间用 in-world 完整年月日时分格式 (现代 RP 用 `YYYY-MM-DD HH:MM`, 历史 RP 用纪年加时辰, SF 用对应历法); 禁用 placeholder (`x年x月x日` / `未知时间` / `待定时间`)。详见 `event-summary-rules-zh` §1 输出格式。
 - **identity 字段**: 只写长期身份 / 背景。临时身份 (服侍员 / 临时随从 / 患者) = SKIP。
 - **location_state.state 路由测试 (硬要求)**: 写入前问 "故事时间往后推 24 小时, 再有别人到这个地方, 他 / 她还会观察到这条吗?" ✅ 会 → 写进 state / resources; ❌ 不会 → 路由到 event.summary 或 DROP。state 是地点 "长期身份证", 不是事件流水。

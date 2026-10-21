@@ -8,7 +8,7 @@ metadata:
 
 # director-dispatch-protocol-zh
 
-This skill is the director main-agent's sub-agent dispatch protocol for the default RP profile. Extracted verbatim from `director-default-prompt.js` (Briefing the analysts + What sub-agents see / do not see + Tools + Parallel dispatch pattern + Notes — anti-pollution policy sections).
+This skill is the director main-agent's sub-agent dispatch protocol for the default RP profile.
 
 ## Your configured analysts
 

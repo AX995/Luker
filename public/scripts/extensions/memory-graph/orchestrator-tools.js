@@ -813,7 +813,7 @@ const SCHEMAS = [
         mode: 'read',
         exec: execMemorySchema,
         simulate: null,
-        description: 'Return the active node-type schema: { types: [{ type, tableName, tableColumns, requiredColumns, primaryKeyColumns, forceUpdate, alwaysInject, editable, compressionMode }] }. This is the SAME schema_overview the native recall LLM sees. Read once at the start of a recall pass to understand which fields are key vs detail and which types use hierarchical compression.',
+        description: 'Return the active node-type schema: { types: [{ type, tableName, tableColumns, requiredColumns, primaryKeyColumns, forceUpdate, extractEveryN, alwaysInject, editable, compressionMode }] }. extractEveryN is the effective per-type extraction cadence; force-update types report 1 and run every round. This carries the same schema information the native recall LLM sees. Read once at the start of a recall pass to understand which fields are key vs detail and which types use hierarchical compression.',
         parameters: {
             type: 'object',
             properties: {},

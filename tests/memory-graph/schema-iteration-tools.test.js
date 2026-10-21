@@ -171,6 +171,16 @@ describe('MG schema — read ⊆ write surface', () => {
         expect(projected.id).toBe('character_sheet');
     });
 
+    test('projection keeps extractEveryN on a force-update type (read ⊆ write)', () => {
+        const projected = projectNodeTypeForRead({
+            ...normalizedNodeType,
+            forceUpdate: true,
+            extractEveryN: 4,
+        });
+        expect(Object.prototype.hasOwnProperty.call(projected, 'extractEveryN')).toBe(true);
+        expect(projected.extractEveryN).toBe(4);
+    });
+
     test('set_node_type preserves a non-writable compression.rule when editing compression', async () => {
         const live = [{ id: 'x', compression: { mode: 'none', rule: 'keep me' } }];
         const call = {
