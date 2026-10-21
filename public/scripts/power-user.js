@@ -240,6 +240,7 @@ export const power_user = {
     luker_mobile_keep_alive_android_enabled: false,
     luker_mobile_keep_alive_harmony_enabled: false,
     luker_mobile_keep_alive_web_audio_enabled: false,
+    luker_open_external_links_in_browser: true,
     hotswap_enabled: true,
     timer_enabled: true,
     timestamps_enabled: true,
@@ -597,6 +598,46 @@ function cancelScopedKeepAliveDeactivateTimer() {
         clearTimeout(scopedKeepAliveDeactivateTimer);
         scopedKeepAliveDeactivateTimer = null;
     }
+}
+
+/**
+ * The shell that accepts the external link policy, or null when the page runs
+ * without one, where the setting has no meaning.
+ * @returns {object|null}
+ */
+function externalLinkPolicyBridge() {
+    for (const bridge of [window.LukerDesktop, window.LukerAndroid, window.LukerHarmony]) {
+        if (bridge && typeof bridge.setOpenExternalLinksInBrowser === 'function') {
+            return bridge;
+        }
+    }
+    return null;
+}
+
+function pushExternalLinkPolicy(enabled) {
+    const bridge = externalLinkPolicyBridge();
+    if (!bridge) {
+        return;
+    }
+    try {
+        const pending = bridge.setOpenExternalLinksInBrowser(Boolean(enabled));
+        if (pending && typeof pending.catch === 'function') {
+            pending.catch((error) => console.error('Failed to sync the external link policy', error));
+        }
+    } catch (error) {
+        console.error('Failed to sync the external link policy', error);
+    }
+}
+
+function syncExternalLinkPolicyUi() {
+    const $row = $('#luker_open_external_links_in_browser').closest('label.checkbox_label');
+    if (!externalLinkPolicyBridge()) {
+        $row.hide();
+        return;
+    }
+    $row.show();
+    $('#luker_open_external_links_in_browser').prop('checked', !!power_user.luker_open_external_links_in_browser);
+    pushExternalLinkPolicy(power_user.luker_open_external_links_in_browser);
 }
 
 function syncMobileKeepAliveUi() {
@@ -2123,6 +2164,7 @@ export function applyPowerUserSettings() {
     applyFontScale('forced');
     applyThemeColor();
     syncAndroidSystemBarsColor();
+    syncExternalLinkPolicyUi();
     applyChatWidth('forced');
     applyAvatarStyle();
     applyBlurStrength();
@@ -4574,6 +4616,13 @@ jQuery(() => {
     $('#luker_mobile_keep_alive').on('change', function () {
         const desired = !!$(this).prop('checked');
         applyMobileKeepAliveFromUser(desired);
+    });
+
+    $('#luker_open_external_links_in_browser').on('change', function () {
+        const value = !!$(this).prop('checked');
+        power_user.luker_open_external_links_in_browser = value;
+        saveSettingsDebounced();
+        pushExternalLinkPolicy(value);
     });
 
     $('#prefer_character_prompt').on('input', function () {

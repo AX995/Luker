@@ -3805,6 +3805,7 @@
     "Keep top bar in immersive mode": "沉浸模式下保留顶部栏",
     "When immersive mode is on, keep the top bar visible instead of hiding it": "沉浸模式开启时，顶部栏仍然可见而不会被隐藏。",
     "Background keep-alive on mobile": "移动端后台保活",
+    "Open external links in the system browser": "外部链接用系统浏览器打开",
     "Keep AI requests running when the app or browser is in the background on mobile devices.": "当应用或浏览器在移动设备后台时，保持 AI 请求继续运行。",
     "Background keep-alive could not be primed. Try unchecking and re-checking the option.": "后台保活预热失败，请取消勾选后重新勾选。",
     "Background keep-alive could not be enabled. Try again from a tap on the page.": "后台保活启用失败，请在页面上点击后重试。",

@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('LukerDesktop', {
     arch: process.arch,
     installFlavour: ipcRenderer.sendSync('luker:install-flavour'),
     installUpdateFromUrl: (url, name) => ipcRenderer.invoke('luker:install-update', { url, name }),
+    setOpenExternalLinksInBrowser: (enabled) => ipcRenderer.invoke('luker:external-link-policy', Boolean(enabled)),
     onUpdateProgress: (callback) => {
         progressCallback = callback;
     },

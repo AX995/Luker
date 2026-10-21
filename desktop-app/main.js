@@ -109,7 +109,37 @@ ipcMain.on('luker:install-flavour', (event) => {
     event.returnValue = installFlavour;
 });
 
+// The preload bridge is attached to the window, not to a page, so a page from
+// another origin loaded into that window can reach these channels too. Both of
+// them act on the machine rather than on the page, and the window is allowed to
+// leave the app on purpose, so the sender frame has to prove it is the app.
+function assertAppFrame(event, action) {
+    const frame = event.senderFrame;
+    if (!backendOrigin) {
+        throw new Error(`${action} was requested before the app page was ready.`);
+    }
+    if (!frame || frame.isDestroyed()) {
+        throw new Error(`${action} was requested by a frame that is no longer available.`);
+    }
+    let frameOrigin = null;
+    try {
+        frameOrigin = new URL(frame.url).origin;
+    } catch {
+        throw new Error(`${action} was requested by a frame without a usable address.`);
+    }
+    if (frameOrigin !== backendOrigin) {
+        throw new Error(`${action} was requested by a page outside the app.`);
+    }
+}
+
+ipcMain.handle('luker:external-link-policy', (event, enabled) => {
+    assertAppFrame(event, 'The external link setting');
+    openExternalLinksInBrowser = enabled !== false;
+});
+
 ipcMain.handle('luker:install-update', async (event, payload) => {
+    assertAppFrame(event, 'The update download');
+
     const rawUrl = String(payload?.url || '');
     const updateUrl = new URL(rawUrl);
     if (updateUrl.protocol !== 'http:' && updateUrl.protocol !== 'https:') {
@@ -309,9 +339,16 @@ async function startBackend(win, locale, port) {
 // Chromium hands `window.open` and `target="_blank"` targets to the embedder,
 // and the default is a bare BrowserWindow with no address bar and no way back;
 // an in-page link would likewise navigate the app window away from the UI.
-// Both are the system browser's job, so anything outside the app's own origin
-// goes there and the window keeps showing Luker.
+// While the external link setting is on, anything outside the app's own origin
+// goes to the system browser and the window keeps showing Luker. A request that
+// carries its own dimensions is a popup whose page talks back to its opener, so
+// it opens as a child of the app window instead.
 let backendOrigin = null;
+
+// The renderer pushes the user setting down after it loads; until then the
+// shell keeps the product default so a link clicked in the first moments
+// still goes to the browser.
+let openExternalLinksInBrowser = true;
 
 function isAppUrl(rawUrl) {
     if (!backendOrigin) {
@@ -319,6 +356,44 @@ function isAppUrl(rawUrl) {
     }
     try {
         return new URL(rawUrl).origin === backendOrigin;
+    } catch {
+        return false;
+    }
+}
+
+// Only http(s) has a meaningful "open in the browser" destination; blob:,
+// data:, about:blank and file: are page content the app has to keep.
+function isExternalHttpUrl(rawUrl) {
+    try {
+        const { protocol } = new URL(rawUrl);
+        return protocol === 'http:' || protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+function shouldOpenInSystemBrowser(rawUrl, currentUrl) {
+    if (isOffAppPage(currentUrl)) {
+        return false;
+    }
+    return openExternalLinksInBrowser && !isAppUrl(rawUrl) && isExternalHttpUrl(rawUrl);
+}
+
+// A page outside the app origin is a session the window admitted on purpose —
+// a server redirect into a sign-in page, for instance. Its own form posts and
+// links belong to that session, and the app page is already off screen, so
+// handing them to the browser would break the session mid-way. An empty or
+// unknown current URL means the app page, which keeps the ordinary decision.
+function isOffAppPage(currentUrl) {
+    if (!backendOrigin || !currentUrl) {
+        return false;
+    }
+    try {
+        const parsed = new URL(currentUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return false;
+        }
+        return parsed.origin !== backendOrigin;
     } catch {
         return false;
     }
@@ -334,17 +409,52 @@ function openInSystemBrowser(rawUrl) {
     shell.openExternal(rawUrl);
 }
 
-function routeExternalNavigation(contents) {
-    contents.setWindowOpenHandler(({ url }) => {
-        if (isAppUrl(url)) {
+// A popup sized by the page opens inside the space the app window occupies.
+// `features` is Chromium's `window.open` feature list: a comma-separated set of
+// `name=value` pairs, where only the two dimensions matter here.
+function popupWindowOptions(win, features) {
+    const requested = new Map();
+    for (const part of features.split(',')) {
+        const [name, value] = part.split('=');
+        const size = Number.parseInt(value, 10);
+        if (name && Number.isInteger(size) && size > 0) {
+            requested.set(name.trim(), size);
+        }
+    }
+    const bounds = win.getContentBounds();
+    return {
+        parent: win,
+        width: Math.min(requested.get('width') ?? 800, bounds.width),
+        height: Math.min(requested.get('height') ?? 640, bounds.height),
+        autoHideMenuBar: true,
+    };
+}
+
+function routeExternalNavigation(win) {
+    const contents = win.webContents;
+
+    contents.setWindowOpenHandler((details) => {
+        if (details.disposition === 'new-window') {
+            return {
+                action: 'allow',
+                overrideBrowserWindowOptions: popupWindowOptions(win, details.features),
+            };
+        }
+        // A form post that opens a new window carries its body in the
+        // window-open request; the system browser only receives a URL, so
+        // handing it over would drop the body and break the session.
+        if (details.postBody) {
             return { action: 'allow' };
         }
-        openInSystemBrowser(url);
+        if (!shouldOpenInSystemBrowser(details.url)) {
+            return { action: 'allow' };
+        }
+        openInSystemBrowser(details.url);
         return { action: 'deny' };
     });
 
     contents.on('will-navigate', (event, url) => {
-        if (isAppUrl(url)) {
+        if (!shouldOpenInSystemBrowser(url, contents.getURL())) {
             return;
         }
         event.preventDefault();
@@ -483,7 +593,7 @@ app.whenReady().then(async () => {
             backgroundThrottling: false,
         },
     });
-    routeExternalNavigation(win.webContents);
+    routeExternalNavigation(win);
 
     // macOS keeps an application menu that already binds the devtools toggle,
     // so the handler would race it. Only the menu-less platforms get one.
