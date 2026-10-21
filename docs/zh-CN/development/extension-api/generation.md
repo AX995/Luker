@@ -40,6 +40,7 @@ context.generateTask({
     runtimeWorldInfo?: object | null = null,      // 已预解析的快照,会跳过激活流程
     forceWorldInfoResimulate?: boolean = false,
     worldInfoType?: string = 'quiet',
+    postActivationHook?: (snapshot: object) => object | null, // 注入前修改激活后的世界书快照
     apiPresetName?: string = '',                  // 连接配置名(例如 'claude')
     llmPresetName?: string = '',                  // chat completion preset 名(例如 'low-temp')
     tools?: Array | null = null,                  // OpenAI 风格的工具定义
@@ -72,6 +73,8 @@ context.generateTask({
 | `'custom'` | 基于你显式提供的 `customWorldInfoMessages` 激活。 |
 
 如果已经有解析好的 WI 快照（例如重试循环中缓存了一份），直接传 `runtimeWorldInfo` 并把 `worldInfoSource` 设成 `'none'`，可以跳过重复激活。
+
+`postActivationHook` 在世界书激活后、提示词组装前执行。它接收归一化后的快照（`worldInfoBeforeEntries`、`worldInfoAfterEntries`、`worldInfoDepth` 等字段），返回要注入的版本。`runtimeWorldInfo` 短路解析时不会执行该钩子。
 
 ### 宏替换
 

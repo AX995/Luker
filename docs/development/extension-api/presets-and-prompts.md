@@ -201,7 +201,7 @@ The `hint` field is English, no longer than 120 characters, and contains actiona
 
 For a normal plugin LLM request, use [`generateTask`](/development/extension-api/generation). It performs profile resolution, World Info activation, prompt assembly, dispatch, and response normalization in one call.
 
-The APIs below are the lower-level primitives. Use them when you need to inspect or transform the assembled prompt, apply a `postActivationHook`, or dispatch through a transport that `generateTask` does not support.
+The APIs below are the lower-level primitives. Use them when you need the assembled prompt without sending it, or dispatch through a transport that `generateTask` does not support.
 
 ### buildPresetAwarePromptMessages
 
@@ -275,6 +275,8 @@ const response = await sendOpenAIRequest('quiet', promptMessages, signal, {
 
 ::: tip About the Post-Activation Hook (postActivationHook)
 The `postActivationHook` parameter of `resolveWorldInfoForMessages` allows you to make arbitrary modifications to entries after World Info activation but before injection — including modifying content, adjusting injection positions and depth, or even adding/removing entries. The hook receives the fully normalized World Info payload and returns the modified version. For example, the Memory Graph plugin uses this hook to rewrite depth-type World Info entries to the after position, preventing them from being inserted into the chat depth and interfering with the plugin's own instructions.
+
+`generateTask` accepts the same hook and applies it during its internal World Info resolution. The primitive below remains available when you assemble the prompt manually.
 :::
 
 ### resolveWorldInfoForMessages
@@ -331,7 +333,7 @@ const result = await context.generateTask({
 
 #### Manual assembly (advanced)
 
-Use the primitive pair when you need the assembled prompt without sending it, need to transform activated entries through `postActivationHook`, or need a transport that `generateTask` does not cover:
+Use the primitive pair when you need the assembled prompt without sending it, need to inspect or modify that prompt, or need a transport that `generateTask` does not cover:
 
 ```js
 import { sendOpenAIRequest } from '../../../openai.js';

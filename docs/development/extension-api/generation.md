@@ -40,6 +40,7 @@ context.generateTask({
     runtimeWorldInfo?: object | null = null,      // pre-resolved snapshot; short-circuits resolution
     forceWorldInfoResimulate?: boolean = false,
     worldInfoType?: string = 'quiet',
+    postActivationHook?: (snapshot: object) => object | null, // transform activated World Info before injection
     apiPresetName?: string = '',                  // connection profile name (e.g. 'claude')
     llmPresetName?: string = '',                  // chat completion preset name (e.g. 'low-temp')
     tools?: Array | null = null,                  // OpenAI-style tool definitions
@@ -72,6 +73,8 @@ context.generateTask({
 | `'custom'` | Activate WI based on `customWorldInfoMessages` you supply explicitly. |
 
 If you already have a resolved WI snapshot (e.g., cached across retries), pass `runtimeWorldInfo` directly with `worldInfoSource: 'none'` to skip re-resolution.
+
+`postActivationHook` runs after World Info activation and before prompt assembly. It receives the normalized snapshot (`worldInfoBeforeEntries`, `worldInfoAfterEntries`, `worldInfoDepth`, and related fields) and returns the version to inject. The hook is skipped when `runtimeWorldInfo` short-circuits resolution.
 
 ### Macro Substitution
 

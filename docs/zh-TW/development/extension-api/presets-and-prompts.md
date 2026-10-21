@@ -201,7 +201,7 @@ presets.state.deleteAll(target?: PresetRef | string | null): Promise<
 
 普通外掛 LLM 請求應優先使用 [`generateTask`](/zh-TW/development/extension-api/generation)。它在一次呼叫中完成連線設定解析、世界書啟動、提示詞組裝、請求分派和回應歸一化。
 
-下面的 API 是底層原語。僅在需要檢查或修改組裝後的提示詞、使用 `postActivationHook`，或透過 `generateTask` 不支援的傳輸方式發送時使用。
+下面的 API 是底層原語。僅在需要取得組裝後的提示詞但不發送，或透過 `generateTask` 不支援的傳輸方式發送時使用。
 
 ### buildPresetAwarePromptMessages
 
@@ -275,6 +275,8 @@ const response = await sendOpenAIRequest('quiet', promptMessages, signal, {
 
 ::: tip 關於後處理鉤子（postActivationHook）
 `resolveWorldInfoForMessages` 的 `postActivationHook` 參數允許你在世界書啟動後、注入前對條目進行任意修改——包括修改內容、調整注入位置和深度、甚至增刪條目。hook 接收歸一化後的完整世界書 payload 並回傳修改後的版本。例如記憶圖外掛利用此鉤子將 depth 類型的世界書條目重寫到 after 位置，避免插入到聊天深度中干擾外掛自己的指令。
+
+`generateTask` 接受同一個鉤子，並在內部解析世界書時執行。手動組裝提示詞時仍可使用下面的原語。
 :::
 
 ### resolveWorldInfoForMessages
@@ -331,7 +333,7 @@ const result = await context.generateTask({
 
 #### 手動組裝（進階）
 
-需要取得組裝後的提示詞但不發送、需要透過 `postActivationHook` 修改啟動條目，或需要 `generateTask` 不支援的傳輸方式時，使用底層原語：
+需要取得組裝後的提示詞但不發送、需要檢查或修改組裝後的提示詞，或需要 `generateTask` 不支援的傳輸方式時，使用底層原語：
 
 ```js
 import { sendOpenAIRequest } from '../../../openai.js';
