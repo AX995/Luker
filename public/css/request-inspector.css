@@ -424,8 +424,15 @@
 
 .ri-params {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
 }
+
+/* Fixed column shares keep long parameter names from squeezing the description
+   into a sliver and forcing it to wrap into an extremely tall cell. */
+.ri-params th:nth-child(1) { width: 30%; }
+.ri-params th:nth-child(2) { width: 16%; }
+.ri-params th:nth-child(3) { width: 54%; }
 
 .ri-params th {
     text-align: left;
@@ -435,6 +442,7 @@
     opacity: 0.5;
     font-weight: 600;
     padding: 1px 12px 5px 0;
+    overflow-wrap: anywhere;
 }
 
 .ri-params td {
@@ -443,9 +451,19 @@
     vertical-align: top;
 }
 
+@media (max-width: 600px) {
+    /* Narrow popups need enough room for the type values to stay on one line. */
+    .ri-params th:nth-child(2) { width: 22%; }
+    .ri-params th:nth-child(3) { width: 48%; }
+    .ri-params th,
+    .ri-params td {
+        padding-right: 6px;
+    }
+}
+
 .ri-param-name {
     font-family: var(--monoFontFamily, ui-monospace, monospace);
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .ri-param-req {
@@ -456,12 +474,20 @@
     font-family: var(--monoFontFamily, monospace);
     color: var(--SmartThemeQuoteColor, #4fc3f7);
     opacity: 0.85;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .ri-param-desc {
     opacity: 0.7;
     word-break: break-word;
+}
+
+/* Long descriptions scroll inside the cell instead of stretching the row.
+   Nine lines keeps one parameter from pushing the rest of the table out of
+   view; the full text stays available in the cell's own scroll area. */
+.ri-param-desc-text {
+    max-height: 9em;
+    overflow-y: auto;
 }
 
 .ri-filter-btn {

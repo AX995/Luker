@@ -510,7 +510,7 @@ function buildToolsSectionHtml(wr, q) {
                 const req = r.required
                     ? ` <span class="ri-param-req" title="${escapeHtml(t`Required`)}">*</span>`
                     : '';
-                return `<tr><td class="ri-param-name"${indent}>${highlightHtml(r.name, q)}${req}</td><td class="ri-param-type">${escapeHtml(r.type)}</td><td class="ri-param-desc">${highlightHtml(r.description, q)}</td></tr>`;
+                return `<tr><td class="ri-param-name"${indent}>${highlightHtml(r.name, q)}${req}</td><td class="ri-param-type">${escapeHtml(r.type)}</td><td class="ri-param-desc"><div class="ri-param-desc-text">${highlightHtml(r.description, q)}</div></td></tr>`;
             }).join('\n');
             bodyHtml = `<div class="ri-tool-schema"><table class="ri-params"><thead><tr><th>${t`Parameter`}</th><th>${t`Type`}</th><th>${t`Description`}</th></tr></thead><tbody>${trs}</tbody></table></div>`;
         } else {
