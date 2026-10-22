@@ -16,6 +16,7 @@ import multer from 'multer';
 import responseTime from 'response-time';
 import helmet from 'helmet';
 import bodyParser from 'body-parser';
+import { ByteBudgetLedger } from './util/byte-budget.js';
 
 // Timestamp all console output and capture to circular log buffer.
 // JSON.stringify throws on circular references / BigInt — if the wrapper ever
@@ -24,7 +25,15 @@ import bodyParser from 'body-parser';
 // aborts with an empty stderr. So: serialize defensively, and never let buffer
 // bookkeeping interfere with the underlying console call.
 const BACKEND_LOG_MAX = 500;
+// Byte budget for the backend log buffer. Entries serialize whole objects
+// with JSON.stringify, so full provider bodies produce ~0.5 MB entries and
+// 500 of them would retain ~250 MB. 128 MB caps that at ~3% of Node's ~4 GB
+// default old-space while keeping the post-mortem tail of backend logs
+// useful. This buffer also ships inside /api/debug-export bundles, so the
+// bound protects bundle sizes too.
+const BACKEND_LOG_BYTE_BUDGET_BYTES = 128 * 1024 * 1024;
 export const backendLogBuffer = [];
+const backendLogLedger = new ByteBudgetLedger(BACKEND_LOG_BYTE_BUDGET_BYTES);
 let backendLogCounter = 0;
 function serializeLogArg(value) {
     if (typeof value === 'string') return value;
@@ -44,8 +53,18 @@ function serializeLogArg(value) {
         const ts = new Date().toISOString();
         try {
             const entry = { id: ++backendLogCounter, ts, level, message: args.map(serializeLogArg).join(' ') };
-            if (backendLogBuffer.length >= BACKEND_LOG_MAX) backendLogBuffer.shift();
+            if (backendLogBuffer.length >= BACKEND_LOG_MAX) {
+                backendLogLedger.untrack(backendLogBuffer[0]);
+                backendLogBuffer.shift();
+            }
             backendLogBuffer.push(entry);
+            backendLogLedger.track(entry);
+            // Byte budget: evict oldest first; the newest entry always
+            // survives so a single oversized line is still captured.
+            while (backendLogLedger.isOver() && backendLogBuffer.length > 1) {
+                backendLogLedger.untrack(backendLogBuffer[0]);
+                backendLogBuffer.shift();
+            }
         } catch { /* never let log capture wreck the underlying console call */ }
         original(`[${ts}]`, ...args);
     };

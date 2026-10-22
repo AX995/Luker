@@ -15,6 +15,10 @@
 - 新增 Tavily、Exa、Serper、SerpApi、Z.AI 搜索提供方，并将所有提供方统一经由 `/api/search/query` 端点调用，恢复上游原始 HTML 的 `/api/search/searxng` 端点。
 - 编辑消息不再丢弃搜索结果。
 
+### 服务端
+
+- 为请求检查器与服务器日志缓冲加入字节预算，超过预算后按最旧优先驱逐记录；请求检查器的预算可在 `config.yaml` 的 `requestInspector.byteBudgetBytes` 中调整。
+
 ### 请求检查器
 
 - 修复了插件通过自定义附加标头覆盖鉴权标头时，显示已存 provider 密钥而非实际发出密钥的问题。

@@ -15,6 +15,10 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Added Tavily, Exa, Serper, SerpApi, and Z.AI as search providers and routed every provider through a unified `/api/search/query` endpoint, restoring the upstream raw-HTML `/api/search/searxng` endpoint.
 - Editing a message no longer discards the search results.
 
+### Server
+
+- Added a byte budget to the request inspector and the captured server log buffers, evicting the oldest records once the budget is exceeded; the inspector budget is tunable via `requestInspector.byteBudgetBytes` in `config.yaml`.
+
 ### Request Inspector
 
 - Fixed the Inspector showing the stored provider key instead of the key that actually went on the wire when a plugin overrode the auth header through custom include headers.

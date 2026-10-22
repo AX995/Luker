@@ -15,6 +15,10 @@
 - 新增 Tavily、Exa、Serper、SerpApi、Z.AI 搜尋提供者，並將所有提供者統一經由 `/api/search/query` 端點呼叫，恢復上游原始 HTML 的 `/api/search/searxng` 端點。
 - 編輯訊息不再丟棄搜尋結果。
 
+### 伺服端
+
+- 為請求檢查器與伺服器日誌緩衝加入位元組預算，超過預算後按最舊優先驅逐記錄；請求檢查器的預算可在 `config.yaml` 的 `requestInspector.byteBudgetBytes` 中調整。
+
 ### 請求檢查器
 
 - 修復了外掛透過自訂附加標頭覆寫驗證標頭時，顯示已存 provider 金鑰而非實際發出金鑰的問題。
