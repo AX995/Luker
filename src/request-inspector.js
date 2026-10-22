@@ -945,6 +945,10 @@ function extractPartsFromStreamEvents(events, source) {
                 } else if (p?.functionCall) {
                     flushText();
                     parts.push({ type: 'tool_call', id: '', name: p.functionCall.name || '', args: p.functionCall.args ?? {} });
+                } else if (p?.inlineData) {
+                    // Gemini streams image output as inlineData parts.
+                    flushText();
+                    parts.push({ type: 'image', mime: p.inlineData.mimeType || '', data: p.inlineData.data || '' });
                 }
             }
         }
@@ -1178,6 +1182,10 @@ function extractPartsFromPayload(payload, source, rawApiResponse) {
                         if (p.text) parts.push({ type: 'text', text: p.text });
                     } else if (p?.functionCall) {
                         parts.push({ type: 'tool_call', id: '', name: p.functionCall.name || '', args: p.functionCall.args ?? {} });
+                    } else if (p?.inlineData) {
+                        // Gemini image output — keep the bytes so the Inspector
+                        // can render the actual image instead of dropping it.
+                        parts.push({ type: 'image', mime: p.inlineData.mimeType || '', data: p.inlineData.data || '' });
                     }
                 }
                 return parts;

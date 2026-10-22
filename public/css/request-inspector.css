@@ -833,3 +833,26 @@
     color: #ce93d8;
     opacity: 0.9;
 }
+
+/* ---- Image previews (request + response sides) ---- */
+
+.ri-msg-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 8px 8px;
+}
+
+.ri-msg-images img.ri-img,
+img.ri-img {
+    max-width: 100%;
+    max-height: 280px;
+    object-fit: contain;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor, #444) 40%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #111) 60%, transparent);
+}
+
+.ri-response-images {
+    padding: 6px 0;
+}
