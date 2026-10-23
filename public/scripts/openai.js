@@ -3,7 +3,7 @@
 * By CncAnon (@CncAnon1)
 * https://github.com/CncAnon1/TavernAITurbo
 */
-import { Fuse, DOMPurify } from '../lib.js';
+import { Fuse, DOMPurify, lodash } from '../lib.js';
 
 import {
     abortStatusCheck,
@@ -63,6 +63,7 @@ import { normalizeStreamingFinishReason } from './extensions/connection-manager/
 
 import { getEventSourceStream } from './sse-stream.js';
 import {
+    areLookupNamesEqual,
     buildPresetNameIndexMap,
     findCanonicalNameInList,
     clamp,
@@ -359,25 +360,21 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Read-only accessor for the currently-active card-bound ghost option's
+ * Live accessor for the currently-active card-bound ghost option's
  * body cache. Returns `null` when no ghost option is selected on
  * `#settings_preset_openai`.
  *
- * Exposed so `preset-manager.getPresetList()` can synthesize a read-only
- * view row for the ghost preset — upstream SillyTavern's implicit
- * contract is that `getPresetList().presets[preset_names[name]]` (and
- * the numeric-index sibling `presets[Number(getSelectedPreset())]`)
- * always resolve to the currently-active preset body. Luker's ghost
- * `<option>` breaks that contract for card-bound bindings because its
- * `value` is an opaque encoded string (`__luker_card__::…`) rather than
- * a numeric index into the global `openai_settings` array. Every
- * third-party extension that follows the upstream idiom (JS-Slash-Runner
- * / TavernHelper, etc.) then reads `undefined` and silently drops its
- * per-preset state.
+ * Exposed so `preset-manager.getPresetList()` can expose the ghost preset
+ * through the upstream SillyTavern contract: `getPresetList().presets[...]`
+ * is a mutable preset body for global presets, so the card-bound row must
+ * be mutable too. Returning a copy here would make `presets[i].x = y`
+ * silently write to a throwaway object instead of the active preset.
  *
- * Encapsulation: we return a shallow structuredClone of the cached body
- * so callers cannot mutate the live cache; the two identifier fields
- * (`name`, `ghostValue`) are strings and safe to hand out.
+ * The returned `body` is the same object stored in `runtimeOptions`; it is
+ * the source body applied to `oai_settings` when the ghost is selected.
+ * Callers may mutate it; persistence goes through
+ * `PresetManager.savePreset()` (or `saveOpenAIPreset()`), which writes the
+ * card slot and refreshes this cache in place.
  *
  * @returns {{ name: string, ghostValue: string, body: object } | null}
  */
@@ -395,8 +392,92 @@ export function getActiveCardBoundGhostSnapshot() {
     return {
         name: String(cached.name ?? selectedOption.textContent ?? '').trim(),
         ghostValue,
-        body: structuredClone(cached.body),
+        body: cached.body,
     };
+}
+
+/**
+ * Update a card-bound preset's runtime body in place after a save. Keeping
+ * the same object identity mirrors the global preset list: a consumer that
+ * already holds `presets[i]` must observe the saved values.
+ *
+ * @param {string} name
+ * @param {object} body
+ * @returns {boolean} true when a matching runtime slot was refreshed
+ */
+export function refreshCharacterBoundPresetRuntimeBody(name, body) {
+    const targetName = String(name || '').trim();
+    if (!targetName) return false;
+    const stripped = stripOpenAIConnectionFieldsFromPreset(body);
+    for (const cached of characterBoundPresetState.runtimeOptions.values()) {
+        if (!cached || !areLookupNamesEqual(cached.name, targetName)) continue;
+        const target = cached.body;
+        if (!target || typeof target !== 'object') continue;
+        for (const key of Object.keys(target)) {
+            delete target[key];
+        }
+        Object.assign(target, stripped);
+        return true;
+    }
+    return false;
+}
+
+function applyChangedPresetObject(target, previous, next) {
+    const keys = new Set([...Object.keys(previous || {}), ...Object.keys(next || {})]);
+    for (const key of keys) {
+        const previousValue = previous?.[key];
+        const nextValue = next?.[key];
+        if (lodash.isEqual(previousValue, nextValue)) continue;
+        if (lodash.isPlainObject(previousValue) && lodash.isPlainObject(nextValue)) {
+            if (!lodash.isPlainObject(target[key])) {
+                target[key] = {};
+            }
+            applyChangedPresetObject(target[key], previousValue, nextValue);
+            continue;
+        }
+        if (nextValue === undefined) {
+            delete target[key];
+        } else {
+            target[key] = structuredClone(nextValue);
+        }
+    }
+}
+
+/**
+ * Apply only the values that changed between two saved card-bound preset
+ * bodies to the live settings. Saving a preset must behave like editing a
+ * global preset: the change takes effect for the next generation, while
+ * unrelated unsaved fields in `oai_settings` survive.
+ *
+ * @param {object} previousBody
+ * @param {object} nextBody
+ */
+export function applyPresetBodyChangesToSettings(previousBody, nextBody) {
+    if (!previousBody || typeof previousBody !== 'object' || !nextBody || typeof nextBody !== 'object') {
+        return;
+    }
+    for (const [presetKey, [, settingsKey]] of Object.entries(settingsToUpdate)) {
+        if (isOpenAIConnectionPresetField(presetKey) || isConnectionProfileOnlyPresetField(presetKey)) {
+            continue;
+        }
+        if (!Object.hasOwn(nextBody, presetKey)) {
+            continue;
+        }
+        const previousValue = previousBody[presetKey];
+        const nextValue = nextBody[presetKey];
+        if (lodash.isEqual(previousValue, nextValue)) {
+            continue;
+        }
+        if (lodash.isPlainObject(previousValue) && lodash.isPlainObject(nextValue) && lodash.isPlainObject(oai_settings[settingsKey])) {
+            applyChangedPresetObject(oai_settings[settingsKey], previousValue, nextValue);
+            continue;
+        }
+        if (nextValue === undefined) {
+            delete oai_settings[settingsKey];
+        } else {
+            oai_settings[settingsKey] = structuredClone(nextValue);
+        }
+    }
 }
 let lastOpenAIPresetSelectValue = '';
 
@@ -6618,11 +6699,15 @@ async function syncCharacterBoundPresetFromSettings() {
             if (JSON.stringify(before.preset || null) !== JSON.stringify(stripped || null)) {
                 await updateCharacterBoundPreset(character, presetName, stripped);
             }
-            // Refresh the runtime cache so subsequent reads see the latest body.
+            // Refresh the runtime cache in place so consumers that already
+            // hold `getPresetList().presets[i]` keep observing the live body.
             const selectedValue = String($('#settings_preset_openai').val() ?? '');
             const cached = characterBoundPresetState.runtimeOptions.get(selectedValue);
-            if (cached) {
-                cached.body = stripped;
+            if (cached?.body && typeof cached.body === 'object') {
+                for (const key of Object.keys(cached.body)) {
+                    delete cached.body[key];
+                }
+                Object.assign(cached.body, stripped);
             }
         } while (syncCharacterBoundPresetFromSettingsQueued);
     } catch (error) {
@@ -7077,6 +7162,7 @@ async function saveOpenAIPreset(name, settings, triggerUi = true) {
         // don't clobber e.g. luker.prompt_groups (see public/scripts/character/
         // presets.js:persistCharacterBoundState).
         await updateCharacterBoundPreset(character, decision.name, presetBody);
+        refreshCharacterBoundPresetRuntimeBody(decision.name, presetBody);
         // Skip the selector `.trigger('change')` — the card-bound option is
         // already the current selection, and firing change would re-enter
         // onSettingsPresetChange → getSelectedCardBoundBody → re-apply loop.

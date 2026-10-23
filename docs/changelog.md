@@ -105,6 +105,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 ### Presets
 
 - Preset and template pickers now support multi-select deletion.
+- Improved performance when a preset is bound to a character card.
 
 ### Fixes
 
