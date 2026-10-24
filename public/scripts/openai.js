@@ -6219,6 +6219,7 @@ function loadOpenAISettings(data, settings) {
     updateCharacterBoundPresetBadge(false);
     $('#openai_external_category').toggle(oai_settings.show_external_models);
     $('.reverse_proxy_warning').toggle(oai_settings.reverse_proxy !== '' || oai_settings.base_url !== '');
+    updateReverseProxyConflictWarning();
 
     // Don't display Service Account JSON in textarea - it's stored in backend secrets
     $('#vertexai_service_account_json').val('');
@@ -8845,9 +8846,20 @@ async function onNewPresetClick() {
     await saveOpenAIPreset(name, oai_settings);
 }
 
+/**
+ * Warns when Base URL and the legacy reverse proxy URL are both set, because
+ * URL resolution prefers `reverse_proxy` and silently ignores `base_url`.
+ */
+export function updateReverseProxyConflictWarning() {
+    const hasProxy = String(oai_settings.reverse_proxy || '').trim() !== '';
+    const hasBaseUrl = String(oai_settings.base_url || '').trim() !== '';
+    $('#reverse_proxy_conflict_warning').toggle(hasProxy && hasBaseUrl);
+}
+
 function onReverseProxyInput() {
     oai_settings.reverse_proxy = String($(this).val());
     $('.reverse_proxy_warning').toggle(oai_settings.reverse_proxy != '' || oai_settings.base_url != '');
+    updateReverseProxyConflictWarning();
     saveSettingsDebounced();
 }
 
@@ -9455,6 +9467,7 @@ export function applyProxyProfileEntry({
     oai_settings.proxy_password = normalizedPassword;
     $('#openai_proxy_access_key').val(normalizedPassword);
     syncProxyPresetSelectionByConnection();
+    updateReverseProxyConflictWarning();
     reconnectOpenAi();
     return selected_proxy?.name || '';
 }
@@ -9506,6 +9519,7 @@ function setProxyPreset(name, url, password) {
     $('#openai_reverse_proxy').val(oai_settings.reverse_proxy);
     oai_settings.proxy_password = password;
     $('#openai_proxy_access_key').val(oai_settings.proxy_password);
+    updateReverseProxyConflictWarning();
     reconnectOpenAi();
 }
 
@@ -10410,6 +10424,7 @@ export function initOpenAI() {
     $('#openai_base_url').on('input', function () {
         oai_settings.base_url = String($(this).val()).trim();
         $('.reverse_proxy_warning').toggle(oai_settings.reverse_proxy != '' || oai_settings.base_url != '');
+        updateReverseProxyConflictWarning();
         saveSettingsDebounced();
         reconnectOpenAi();
     });

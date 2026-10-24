@@ -37,6 +37,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Aligned chat-completion sampling, reasoning, and tool parameters with each provider's API: unsupported parameters are hidden and no longer sent, and parameters the API accepts but the UI lacked now have controls.
 - Fixed a timed-out request's retry reusing the same generation id, which made the retry read the previous attempt's buffered error as its own result and left the previous attempt running in parallel.
 - Fixed the deprecated proxy preset migration losing the profile proxy password and leaving migrated profiles to authenticate with the active provider key.
+- Added a warning in the API settings when Base URL and a legacy proxy URL are both set, since the proxy URL takes precedence.
 - Fixed OpenRouter streamed reasoning details accumulating as one fragment per delta instead of merging into complete entries.
 - Fixed plain-text function calling stripping unparsed function_calls from the reply text.
 - The connection-profile picker now supports multi-select deletion.
