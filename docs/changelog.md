@@ -18,6 +18,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 ### Server
 
 - Added a byte budget to the request inspector and the captured server log buffers, evicting the oldest records once the budget is exceeded; the inspector budget is tunable via `requestInspector.byteBudgetBytes` in `config.yaml`.
+- Fixed a denial-of-service vulnerability that let unauthenticated clients make the server buffer and parse request bodies up to 500 MB before authentication and access control checks ran; request bodies are now parsed after every access check, and the pre-login account routes cap request bodies at 100 KB.
 
 ### Request Inspector
 
@@ -37,6 +38,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Fixed a timed-out request's retry reusing the same generation id, which made the retry read the previous attempt's buffered error as its own result and left the previous attempt running in parallel.
 - Fixed the deprecated proxy preset migration losing the profile proxy password and leaving migrated profiles to authenticate with the active provider key.
 - Fixed OpenRouter streamed reasoning details accumulating as one fragment per delta instead of merging into complete entries.
+- Fixed plain-text function calling stripping unparsed function_calls from the reply text.
 - The connection-profile picker now supports multi-select deletion.
 
 ### Storage & Sync
