@@ -426,10 +426,12 @@
     white-space: nowrap;
 }
 
-/* Full tool description in the expanded body. The card is collapsed by
-   default, so rendering the complete text here costs no height until the user
-   opens it; no nested scroll and no clipping. */
+/* Full tool description in the expanded body. Capped at six lines at 1.5
+   line-height; the complete text stays in the block's own scroll area. */
 .ri-tool-desc-full {
+    max-height: 9em;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 6px 10px;
     border-top: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor, #444) 30%, transparent);
     font-size: 0.85em;
