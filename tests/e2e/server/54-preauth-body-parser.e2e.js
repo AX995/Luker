@@ -26,6 +26,10 @@
 //   5. The pre-auth cap does not leak into the private routers mounted
 //      under the same /api/users prefix: a 300 KB avatar still reaches
 //      /api/users/change-avatar after login.
+//   6. Conflict resolutions (one map entry per conflicting file) still
+//      fit the sync routes now that their per-route parsers are live:
+//      the payload is a resolutions map, not metadata, and grows with
+//      the conflict set like /pull's.
 
 import { test, expect } from '@playwright/test';
 import net from 'node:net';
@@ -165,4 +169,40 @@ test.describe('#54 — body parsing must not run before access control', () => {
         });
         expect(res.status).toBe(204);
     });
+
+    test('conflict resolutions fit the sync route that applies them', async () => {
+        // `resolutions` maps every conflicting file path to the picked
+        // side, so it scales with the conflict set rather than staying
+        // metadata-sized. A few hundred conflicts exceed 4 KB.
+        const csrf = await mintCsrf();
+        const res = await fetch(`${server.baseURL}/api/sync/v1/peers/unknown-peer/sync`, {
+            method: 'POST',
+            headers: authenticatedHeaders(csrf),
+            body: JSON.stringify({ resolutions: conflictResolutions(300) }),
+        });
+        // Unknown peer: parsed and rejected by the handler, not 413.
+        expect(res.status).toBe(404);
+    });
+
+    test('conflict resolutions fit the fresh-pair route that applies them', async () => {
+        const csrf = await mintCsrf();
+        const res = await fetch(`${server.baseURL}/api/sync/v1/pair/accept`, {
+            method: 'POST',
+            headers: authenticatedHeaders(csrf),
+            body: JSON.stringify({ resolutions: conflictResolutions(300) }),
+        });
+        // Missing required fields: parsed and rejected by the handler,
+        // not 413.
+        expect(res.status).toBe(400);
+    });
 });
+
+/** One entry per conflicting file, shaped like the sync conflict map. */
+function conflictResolutions(count) {
+    /** @type {Record<string, string>} */
+    const resolutions = {};
+    for (let i = 0; i < count; i++) {
+        resolutions[`characters/spec-character/chats/2026-01-01@12h${String(i).padStart(2, '0')}m00s.jsonl`] = i % 2 ? 'ours' : 'theirs';
+    }
+    return resolutions;
+}
