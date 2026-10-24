@@ -237,10 +237,6 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(bodyParser.json({ limit: '500mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
-
-// CORS Settings //
 const corsEnabled = getConfigValue('cors.enabled', true, 'boolean');
 if (corsEnabled) {
     const corsOrigin = getConfigValue('cors.origin', 'null');
@@ -515,6 +511,17 @@ app.use(enforceUserQuotaMiddleware);
 // so /api/sync/v1/* is unaffected, and AFTER requireLoginMiddleware so
 // the middleware can read `request.user.profile.handle`.
 app.use(syncInProgressMiddleware());
+
+// Body parsing runs AFTER every access control above (Basic Auth, IP
+// whitelist, host validation, cookie session, CSRF, account login,
+// storage quota, the LAN sync write-gate) so an unauthorized request is
+// rejected before a single body byte is buffered. Authenticated users
+// legitimately post large payloads (character imports, chat exports,
+// settings saves), so the generous limit applies only inside the trust
+// boundary.
+app.use(bodyParser.json({ limit: '500mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
+
 app.post('/api/ping', (request, response) => {
     if (request.query.extend && request.session) {
         request.session.touch = Date.now();
