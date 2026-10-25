@@ -108,6 +108,10 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Preset and template pickers now support multi-select deletion.
 - Improved performance when a preset is bound to a character card.
 
+### Chat
+
+- Added **Swipe gestures** and **Arrow key swipes** switches to User Settings.
+
 ### Fixes
 
 - Fixed LAN Sync status messages and other translated strings showing in English on Chinese locales.
