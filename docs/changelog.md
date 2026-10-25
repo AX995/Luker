@@ -121,6 +121,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Fixed a spurious "Chat save aborted" alert appearing when Luker opens.
 - Fixed the update check never reporting an available update on Android and HarmonyOS.
 - Fixed state replay dropping full-replacement patches, which could lose stored extension data when a large change was saved.
+- Fixed the **Auth & Limits** admin tab rendering its fields centered and misaligned.
 
 ## v2.8.0 (2026-10-01)
 
