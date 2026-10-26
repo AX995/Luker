@@ -72,6 +72,10 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 
 - Third-party links in the desktop, Android, and HarmonyOS apps now open in the system browser instead of replacing the Luker page, with an **Open external links in the system browser** toggle in user settings. Popups that request window features open as an in-app floating window, so third-party authorization flows keep working.
 
+### Character Cards
+
+- Fixed the client crashing from memory exhaustion when deleting a large character card.
+
 ### Memory Graph
 
 - Fixed Memory Graph schema iteration failing to apply valid node-type edits because the read tool exposed fields the set tool's schema does not accept.
