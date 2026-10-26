@@ -83,6 +83,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Fixed the extraction retry message contradicting the validator.
 - Added the **Concurrent extraction** mode, which extracts per active node type in parallel.
 - Added a configuration studio that edits the schema, extraction and recall prompts, node-type text, and behavior parameters through reviewable AI proposals; character-scoped parameter writes now store only values that differ from the global settings.
+- Fixed regenerating a turn during its Memory Graph extraction leaving the extraction processing the deleted content.
 
 ### Iteration Studio
 

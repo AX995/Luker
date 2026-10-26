@@ -32,6 +32,7 @@ import {
     buildExtractionNodesBlock,
     buildExtractionEdgesBlock,
     buildRoundNodesSection,
+    classifyExtractionMutation,
 } from './extraction-schedule.js';
 import { renderExtractionTemplate, resolveExtractionTemplate } from './prompt-units.js';
 export { DEFAULT_PER_TYPE_INSTRUCTIONS, computeActiveExtractionTypes };
@@ -410,9 +411,13 @@ let activeExtractionAbortController = null;
 //   beginSeq:     preview.beginSeq at pass launch (immutable)
 //   latestSeq:    upper bound the loop actually respects; may be shrunk
 //                 by `applyMutationInvalidationImpl` when a mutation
-//                 lands inside the not-yet-committed tail
+//                 lands in a not-yet-dispatched tail batch
 //   committedSeq: highest endSeq that has been fully committed
 //                 (batch commit + compression commit both bump it)
+//   inFlightSeqFrom/To: range of the batch currently handed to the LLM
+//                 pipeline, null between batches. The batch prompt is built
+//                 from the launch-time frames snapshot, so a mutation inside
+//                 this range discards the batch instead of shrinking the tail.
 let activeExtractionScope = null;
 let activeRecallRunToken = 0;
 let nextActiveRecallRequestId = 0;
@@ -9132,6 +9137,8 @@ async function runScheduledExtractionPass(chatKey) {
             beginSeq: Number(preview.beginSeq || 0),
             latestSeq: Number(preview.latestSeq || 0),
             committedSeq: Number(preview.beginSeq || 0) - 1,
+            inFlightSeqFrom: null,
+            inFlightSeqTo: null,
         };
         const extractBatchTurns = Math.max(
             1,
@@ -9161,6 +9168,10 @@ async function runScheduledExtractionPass(chatKey) {
             abortSignal: extractionAbortController.signal,
             getEffectiveLatestSeq: () => activeExtractionScope?.latestSeq ?? Number(preview.latestSeq || 0),
             onBatchStart: ({ beginSeq, endSeq, latestSeq }) => {
+                if (activeExtractionScope) {
+                    activeExtractionScope.inFlightSeqFrom = Number(beginSeq || 0);
+                    activeExtractionScope.inFlightSeqTo = Number(endSeq || 0);
+                }
                 updateRuntimeInfoToastMessage(formatExtractionRangeToast(beginSeq, endSeq, latestSeq));
             },
             onPhaseProgress: ({ beginSeq, endSeq, latestSeq, stage, done, total }) => {
@@ -9181,6 +9192,8 @@ async function runScheduledExtractionPass(chatKey) {
                         activeExtractionScope.committedSeq,
                         Number(endSeq || 0),
                     );
+                    activeExtractionScope.inFlightSeqFrom = null;
+                    activeExtractionScope.inFlightSeqTo = null;
                 }
             },
             onCompressionApplied: async ({ beforeStore, batchEndSeq }) => {
@@ -9201,7 +9214,12 @@ async function runScheduledExtractionPass(chatKey) {
                 }
             },
         });
-        const finalSeq = Number(preview.latestSeq || workingStore?.lastExtractionDebug?.latestSeq || 0);
+        // A mutation may have shrunk the pass below its launch-time bound, or
+        // a batch may have bailed without processing. Anchor the tail commit
+        // at the last batch that actually committed — `preview.latestSeq` can
+        // point past extracted coverage and, after a tail delete, no longer
+        // map to an existing floor.
+        const finalSeq = Number(activeExtractionScope ? activeExtractionScope.committedSeq : preview.latestSeq);
         const finalResult = await commitMemoryStoreDiffByChatKey(
             runtimeContext,
             chatKey,
@@ -15835,10 +15853,17 @@ async function applyMutationInvalidationImpl(fromSeq = null, { scheduleReplay = 
     //
     //   noop:                fromSeq > scope.latestSeq — pass hasn't
     //                        reached the affected region, let it run.
-    //   shrink:              committed < fromSeq <= latestSeq — the
-    //                        not-yet-committed tail is now stale; lower
-    //                        latestSeq so the loop winds down at
-    //                        fromSeq - 1 on its next batch check.
+    //   shrink:              the mutation lands in a tail batch that has
+    //                        not been dispatched yet; lower latestSeq so
+    //                        the loop winds down at fromSeq - 1 on its
+    //                        next batch check.
+    //   abort_in_flight_batch:
+    //                        fromSeq sits inside the batch currently being
+    //                        processed. Its prompt was built from the
+    //                        launch-time frames snapshot, so the stale
+    //                        batch cannot be salvaged by lowering the
+    //                        bound — abort and let the post-regeneration
+    //                        schedule re-extract the new content.
     //   abort_committed_hit: fromSeq <= committed — already-committed
     //                        work covers the affected region; abort and
     //                        let the store refresh below re-materialize
@@ -15847,22 +15872,15 @@ async function applyMutationInvalidationImpl(fromSeq = null, { scheduleReplay = 
     //                        preserves the pre-refactor behaviour.
     if (activeExtractionAbortController && !activeExtractionAbortController.signal.aborted) {
         const scope = activeExtractionScope;
-        let decision;
-        if (normalizedFromSeq === null || !scope) {
-            decision = 'abort_no_metadata';
-        } else if (normalizedFromSeq <= scope.committedSeq) {
-            decision = 'abort_committed_hit';
-        } else if (normalizedFromSeq <= scope.latestSeq) {
-            decision = 'shrink';
-        } else {
-            decision = 'noop';
-        }
-        if (decision === 'abort_no_metadata' || decision === 'abort_committed_hit') {
+        const decision = classifyExtractionMutation(scope, normalizedFromSeq);
+        if (decision === 'abort_no_metadata'
+            || decision === 'abort_committed_hit'
+            || decision === 'abort_in_flight_batch') {
             if (isCurrentChat) {
                 clearRuntimeInfoToast('extraction');
             }
             activeExtractionAbortController.abort();
-        } else if (decision === 'shrink') {
+        } else if (decision === 'shrink' && scope) {
             scope.latestSeq = normalizedFromSeq - 1;
             // Keep the toast — the pass is winding down, not being killed.
         }
