@@ -852,6 +852,7 @@ export function getRegexedString(rawString, placement, { characterOverride, isMa
     }
 
     const allRegex = getRegexScripts({ allowedOnly: true });
+    const trackPerformance = extension_settings.regex_perf_detection !== false;
     allRegex.forEach((script, index) => {
         if (!script || typeof script !== 'object') {
             return;
@@ -900,10 +901,12 @@ export function getRegexedString(rawString, placement, { characterOverride, isMa
                 if (isRegexScriptPaused(script.id)) {
                     return;
                 }
-                const __regexStart = performance.now();
+                const __regexStart = trackPerformance ? performance.now() : 0;
                 finalString = runRegexScript(script, finalString, { characterOverride });
-                const __regexElapsed = performance.now() - __regexStart;
-                recordRegexExecution(script, __regexElapsed);
+                if (trackPerformance) {
+                    const __regexElapsed = performance.now() - __regexStart;
+                    recordRegexExecution(script, __regexElapsed);
+                }
             }
         }
     });

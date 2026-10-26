@@ -9,8 +9,8 @@ import { SlashCommandEnumValue, enumTypes } from '../../slash-commands/SlashComm
 import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
 import { download, equalsIgnoreCaseAndAccents, escapeHtml, getFileText, getSortableDelay, isFalseBoolean, isTrueBoolean, regexFromString, setInfoBlock, uuidv4 } from '../../utils.js';
 import { allowPresetScripts, allowScopedScripts, disallowPresetScripts, disallowScopedScripts, getCurrentPresetAPI, getCurrentPresetName, getRegexScripts, getRuntimeRegexScripts, getScriptsByType, isPresetScriptsAllowed, isScopedScriptsAllowed, regex_placement, RegexProvider, REGEX_RUNTIME_SCRIPTS_CHANGED_EVENT, runRegexScript, saveScriptsByType, SCRIPT_TYPE_UNKNOWN, SCRIPT_TYPES, substitute_find_regex } from './engine.js';
-import { REGEX_ALLOW_SLOW_SCRIPT_EVENT, REGEX_OPEN_SCRIPT_EVENT, resetRegexScriptState } from './redos-reporter.js';
-import { getCurrentLocale, t } from '../../i18n.js';
+import { REGEX_ALLOW_SLOW_SCRIPT_EVENT, REGEX_HARD_THRESHOLD_MS, REGEX_OPEN_SCRIPT_EVENT, resetAllRegexScriptState, resetRegexScriptState } from './redos-reporter.js';
+import { getCurrentLocale, t, translate } from '../../i18n.js';
 import { accountStorage } from '../../util/AccountStorage.js';
 import { getPresetManager } from '../../preset-manager.js';
 
@@ -2813,6 +2813,17 @@ function setupRegexSortable() {
     }
 }
 
+async function showRegexPerfDetectionHelp() {
+    const container = document.createElement('div');
+    const what = document.createElement('p');
+    what.textContent = t`Every regex script run is timed. A script that takes ${REGEX_HARD_THRESHOLD_MS} ms or longer in a single run is paused for the session and a warning appears, so catastrophic backtracking cannot freeze the chat.`;
+    container.appendChild(what);
+    const off = document.createElement('p');
+    off.textContent = t`When detection is off, scripts still run, but their time is not recorded and they are not paused or reported.`;
+    container.appendChild(off);
+    await callGenericPopup(container, POPUP_TYPE.TEXT, translate('Performance detection', 'ext_regex_perf_detection'), { okButton: t`Got it` });
+}
+
 // Workaround for loading in sequence with other extensions
 // NOTE: Always puts extension at the top of the list, but this is fine since it's static
 export async function init() {
@@ -2822,6 +2833,10 @@ export async function init() {
 
     if (!Array.isArray(extension_settings.regex_presets)) {
         extension_settings.regex_presets = [];
+    }
+
+    if (typeof extension_settings.regex_perf_detection !== 'boolean') {
+        extension_settings.regex_perf_detection = true;
     }
 
     // Manually disable the extension since static imports auto-import the JS file
@@ -2848,6 +2863,21 @@ export async function init() {
     applyCollapsedRegexSections();
     bindRegexSectionCollapse();
     bindRegexReloadOnSettingsClose();
+    $('#regex_perf_detection_toggle')
+        .prop('checked', extension_settings.regex_perf_detection)
+        .on('input', function () {
+            const enabled = !!$(this).prop('checked');
+            extension_settings.regex_perf_detection = enabled;
+            if (!enabled) {
+                resetAllRegexScriptState();
+                void requestRegexChatReload();
+            }
+            saveSettingsDebounced();
+        });
+    $('#regex_perf_detection_help').on('click', function (event) {
+        event.preventDefault();
+        void showRegexPerfDetectionHelp();
+    });
     $('#open_regex_editor').on('click', function () {
         onRegexEditorOpenClick(false, SCRIPT_TYPES.GLOBAL);
     });
