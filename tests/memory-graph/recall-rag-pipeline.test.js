@@ -212,6 +212,35 @@ describe('runRagRecall — early exits', () => {
         expect(meta.skipReasons.some(r => r.includes('Empty query'))).toBe(true);
     });
 
+    test('store with no nodes → skip before embedding the query', async () => {
+        const { runRagRecall } = await retrieverModulePromise;
+        const { candidates, meta } = await runRagRecall({ nodes: {} }, 'q', 'chat-1', {}, {});
+        expect(findSimilarNodesMock).not.toHaveBeenCalled();
+        expect(candidates).toEqual([]);
+        expect(meta.skipReasons.some(r => r.includes('No graph nodes'))).toBe(true);
+    });
+
+    test('store with only archived nodes → skip before embedding the query', async () => {
+        const { runRagRecall } = await retrieverModulePromise;
+        const store = makeStore();
+        for (const node of Object.values(store.nodes)) {
+            node.archived = true;
+        }
+        const { candidates, meta } = await runRagRecall(store, 'q', 'chat-1', {}, {});
+        expect(findSimilarNodesMock).not.toHaveBeenCalled();
+        expect(candidates).toEqual([]);
+        expect(meta.skipReasons.some(r => r.includes('No graph nodes'))).toBe(true);
+    });
+
+    test('one live node keeps the recall path running', async () => {
+        const { runRagRecall } = await retrieverModulePromise;
+        findSimilarNodesMock.mockResolvedValue([{ nodeId: 'n_a', score: 0.8 }]);
+        const { candidates, meta } = await runRagRecall({ nodes: { n_a: makeStore().nodes.n_a } }, 'q', 'chat-1', {}, {});
+        expect(findSimilarNodesMock).toHaveBeenCalledTimes(1);
+        expect(candidates.map(c => c.nodeId)).toEqual(['n_a']);
+        expect(meta.skipReasons).toEqual([]);
+    });
+
     test('abort signal mid-call propagates AbortError', async () => {
         const { runRagRecall } = await retrieverModulePromise;
         const ctrl = new AbortController();

@@ -98,7 +98,7 @@ import {
     buildMemoryGraphSettingsHtml,
     buildSchemaEditorPopupHtml,
 } from './ui-templates.js';
-import { runRagRecall } from './retriever.js';
+import { runRagRecall, hasRecallableNodes } from './retriever.js';
 import {
     getVectorConfigFromSettings,
     getRerankProfileFromSettings,
@@ -8722,6 +8722,11 @@ async function injectMemoryPrompts(context, payload) {
 
     if (!settings.recallEnabled) {
         // Skip recall; fall through to clear runtime lorebook projection.
+    } else if (recallMethod === 'rag' && !hasRecallableNodes(store)) {
+        // Fresh chat (or a store whose nodes are all archived): there is
+        // nothing RAG could return, so skip the index sync, the optional
+        // query-rewrite LLM call, and the query embedding entirely.
+        trace = [{ step: 'skip_rag_recall_no_nodes' }];
     } else if (recallMethod === 'rag') {
         const queryBundle = getRecallQueryBundle(payload, context, settings);
         const queryText = normalizeText(queryBundle.fullText || '');
@@ -15327,7 +15332,9 @@ function bindUi() {
         let selectedNodes = [];
         let trace = [];
 
-        if (recallMethod === 'rag') {
+        if (recallMethod === 'rag' && !hasRecallableNodes(store)) {
+            trace = [{ step: 'skip_rag_recall_no_nodes' }];
+        } else if (recallMethod === 'rag') {
             const chatKey = getChatKey(context);
             const queryBundle = getRecallQueryBundle(payload, context, effectiveSettings);
             const queryText = normalizeText(queryBundle.fullText || '');

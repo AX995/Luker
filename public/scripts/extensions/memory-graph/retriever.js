@@ -46,6 +46,20 @@ export function normalizeQueryText(value) {
     return String(value ?? '').replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * True when the store holds at least one node RAG recall could return.
+ * Archived nodes are filtered out of results downstream, so a store made of
+ * archived nodes only is as empty as a fresh chat for recall purposes.
+ * Callers use this to skip query rewrite / index sync / embedding work.
+ */
+export function hasRecallableNodes(store) {
+    const nodes = store?.nodes;
+    if (!nodes || typeof nodes !== 'object') {
+        return false;
+    }
+    return Object.values(nodes).some(node => Boolean(node) && !node.archived);
+}
+
 function createEmptyMeta() {
     return {
         vectorHits: 0,
@@ -206,6 +220,13 @@ export async function runRagRecall(store, queryText, chatId, settings, options =
     }
     if (!effectiveQuery) {
         meta.skipReasons.push('Empty query');
+        timings.totalMs = Math.round((performance.now() - t0) * 10) / 10;
+        meta.timings = timings;
+        return { candidates: [], meta };
+    }
+
+    if (!hasRecallableNodes(store)) {
+        meta.skipReasons.push('No graph nodes');
         timings.totalMs = Math.round((performance.now() - t0) * 10) / 10;
         meta.timings = timings;
         return { candidates: [], meta };
