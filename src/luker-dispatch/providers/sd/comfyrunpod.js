@@ -136,7 +136,9 @@ export async function dispatchSdComfyRunPod(ctx) {
         }
 
         const format = path.extname(item.filename).slice(1).toLowerCase() || 'png';
-        ctx.inspection.completeImage({ format });
+        const imageData = typeof item.data === 'string' ? item.data : '';
+        const sizeBytes = imageData ? Math.floor(imageData.length * 3 / 4) : null;
+        ctx.inspection.completeImage({ format, sizeBytes, data: imageData });
 
         const payload = { format, data: item.data };
         const encoder = new TextEncoder();

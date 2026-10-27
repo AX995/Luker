@@ -1451,8 +1451,17 @@ function parseComfyWorkflow(promptData) {
     }
     if (!workflow || typeof workflow !== 'object') return result;
 
-    const nodes = Object.values(workflow);
-    for (const node of nodes) {
+    // The client posts `body.prompt` verbatim to ComfyUI's /prompt route, so
+    // the node graph is nested under `prompt` (with an optional client_id
+    // sibling). Accept a bare node graph as well.
+    if (workflow.prompt && typeof workflow.prompt === 'object' && !Array.isArray(workflow.prompt)) {
+        workflow = workflow.prompt;
+    }
+
+    const textByNodeId = new Map();
+    let samplerInputs = null;
+
+    for (const [nodeId, node] of Object.entries(workflow)) {
         const cls = node?.class_type;
         const inputs = node?.inputs;
         if (!cls || !inputs) continue;
@@ -1462,14 +1471,12 @@ function parseComfyWorkflow(promptData) {
             result.cfgScale = inputs.cfg ?? result.cfgScale;
             result.seed = inputs.seed ?? inputs.noise_seed ?? result.seed;
             result.sampler = inputs.sampler_name ?? result.sampler;
-        } else if (cls === 'CLIPTextEncode') {
-            const text = typeof inputs.text === 'string' ? inputs.text : '';
-            // Heuristic: shorter CLIP texts or ones with "negative" in node title are negative prompts
-            if (!result.prompt) {
-                result.prompt = text;
-            } else if (!result.negativePrompt && text.length < result.prompt.length) {
-                result.negativePrompt = text;
-            }
+            if (!samplerInputs && inputs.positive && inputs.negative) samplerInputs = inputs;
+        } else if (cls === 'CLIPTextEncode' || cls === 'CLIPTextEncodeSDXL') {
+            const text = typeof inputs.text === 'string'
+                ? inputs.text
+                : (typeof inputs.text_g === 'string' ? inputs.text_g : '');
+            if (text) textByNodeId.set(String(nodeId), text);
         } else if (cls === 'CheckpointLoaderSimple' || cls === 'CheckpointLoader') {
             result.model = inputs.ckpt_name ?? result.model;
         } else if (cls === 'EmptyLatentImage') {
@@ -1477,6 +1484,27 @@ function parseComfyWorkflow(promptData) {
             result.height = inputs.height ?? result.height;
         }
     }
+
+    const linkedText = (link) => {
+        if (!Array.isArray(link)) return '';
+        return textByNodeId.get(String(link[0])) ?? '';
+    };
+
+    if (samplerInputs) {
+        result.prompt = linkedText(samplerInputs.positive);
+        result.negativePrompt = linkedText(samplerInputs.negative);
+    }
+
+    // Fallback for workflows whose sampler does not link straight to text
+    // nodes: first remaining text is the prompt, a shorter one is negative.
+    if (!result.prompt || !result.negativePrompt) {
+        const remaining = [...textByNodeId.values()].filter(text => text !== result.prompt);
+        if (!result.prompt) result.prompt = remaining.shift() ?? '';
+        if (!result.negativePrompt && remaining.length) {
+            result.negativePrompt = remaining.find(text => text.length < result.prompt.length) ?? remaining[0];
+        }
+    }
+
     return result;
 }
 
@@ -1609,6 +1637,17 @@ export function extractImageMeta(source, body) {
 }
 
 /**
+ * Mime type for an image file extension captured from the upstream output.
+ * @param {string|null} format
+ * @returns {string}
+ */
+function imageMimeFromFormat(format) {
+    const f = String(format || '').toLowerCase();
+    if (!f) return '';
+    return f === 'jpg' ? 'image/jpeg' : `image/${f}`;
+}
+
+/**
  * Start tracking an image generation request.
  * @param {import('express').Request} request
  * @param {object} meta - from extractImageMeta()
@@ -1640,6 +1679,7 @@ export function startImageInspection(request, meta) {
         error: '',
         outputFormat: null,
         outputSizeBytes: null,
+        outputImage: null,
     };
 
     pushEntry(handle, entry);
@@ -1650,7 +1690,7 @@ export function startImageInspection(request, meta) {
 /**
  * Complete an image inspection with success.
  * @param {import('express').Request} request
- * @param {object} [resultMeta] - { format, sizeBytes }
+ * @param {object} [resultMeta] - { format, sizeBytes, data, mime }
  */
 export function completeImageInspection(request, resultMeta) {
     const entry = findEntry(request);
@@ -1662,7 +1702,19 @@ export function completeImageInspection(request, resultMeta) {
     if (resultMeta) {
         entry.outputFormat = resultMeta.format || null;
         entry.outputSizeBytes = resultMeta.sizeBytes ?? null;
+        if (typeof resultMeta.data === 'string' && resultMeta.data) {
+            entry.outputImage = {
+                type: 'image',
+                mime: String(resultMeta.mime || imageMimeFromFormat(entry.outputFormat)),
+                data: resultMeta.data,
+            };
+        }
     }
+
+    // The generated image can be several megabytes — re-estimate and evict
+    // before returning.
+    inspectorLedger.retouch(entry);
+    enforceByteBudget();
 }
 
 /**

@@ -5218,6 +5218,7 @@
     "Sampler": "采样器",
     "Output Format": "输出格式",
     "Output Size": "输出大小",
+    "Output Image": "输出图片",
     "Dimensions": "尺寸",
     "Embedding": "嵌入",
     "Rerank": "重排序",

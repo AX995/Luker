@@ -29,6 +29,8 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Parameters without a description show a dash instead of a blank cell.
 - Fixed streamed reasoning details rendering one row per fragment with empty bodies in the request and response views; fragments now merge into complete entries showing their text, summary, and signature, and the duplicated plain reasoning block is dropped.
 - Inlined images in request and response messages render as image previews that load when the message is expanded; the **Wire Request** view elides long base64 payloads.
+- Fixed ComfyUI image records showing an empty prompt and no generation parameters.
+- Image generation records now show the generated image.
 
 ### Connections & Models
 

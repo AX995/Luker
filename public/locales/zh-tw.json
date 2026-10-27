@@ -5053,6 +5053,7 @@
     "Sampler": "取樣器",
     "Output Format": "輸出格式",
     "Output Size": "輸出大小",
+    "Output Image": "輸出圖片",
     "Dimensions": "尺寸",
     "Embedding": "嵌入",
     "Rerank": "重排序",
