@@ -108,9 +108,12 @@ final class LukerRuntimeManager {
                 "--globalExtensionsPath", paths.globalExtensionsRoot.path,
                 "--configPath", paths.dataRoot.appendingPathComponent(Self.configFileName).path,
             ]
-            let cArguments = arguments.map { strdup($0) }
-            defer { cArguments.forEach { free($0) } }
-            let exitCode = luker_node_start(cArguments, Int32(arguments.count))
+            let rawArguments = arguments.map { strdup($0) }
+            defer { rawArguments.forEach { free($0) } }
+            let cArguments: [UnsafePointer<CChar>?] = rawArguments.map { $0.map { UnsafePointer($0) } }
+            let exitCode = cArguments.withUnsafeBufferPointer { buffer in
+                luker_node_start(buffer.baseAddress, Int32(arguments.count))
+            }
             if exitCode != 0 {
                 NSLog("[LukerRuntime] luker_node_start returned non-zero: %d", exitCode)
                 return StartResult(
@@ -153,8 +156,14 @@ final class LukerRuntimeManager {
     private func detachServerPluginsAlias(at runtimeRoot: URL) throws {
         let alias = runtimeRoot.appendingPathComponent(Self.serverPluginsAliasName)
         let manager = FileManager.default
-        var isSymlink: ObjCBool = false
-        if manager.fileExists(atPath: alias.path, isSymbolicLink: &isSymlink), isSymlink.boolValue {
+        let isSymlink: Bool
+        do {
+            _ = try manager.destinationOfSymbolicLink(atPath: alias.path)
+            isSymlink = true
+        } catch {
+            isSymlink = false
+        }
+        if isSymlink {
             try manager.removeItem(at: alias)
         } else if manager.fileExists(atPath: alias.path) {
             throw NSError(

@@ -13,7 +13,7 @@
 
 static std::atomic<bool> g_node_running(false);
 
-int luker_node_start(const char *const *argv, int argc) {
+extern "C" int luker_node_start(const char *const *argv, int argc) {
     if (g_node_running.exchange(true)) {
         return 0;
     }
@@ -46,6 +46,6 @@ int luker_node_start(const char *const *argv, int argc) {
     return 0;
 }
 
-bool luker_node_is_running(void) {
+extern "C" bool luker_node_is_running(void) {
     return g_node_running.load();
 }

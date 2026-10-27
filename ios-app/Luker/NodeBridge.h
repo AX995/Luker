@@ -5,6 +5,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /// Starts the embedded Node.js runtime on a background thread.
 ///
 /// Mirrors android-app/app/src/main/cpp/native-lib.cpp: the first call spawns a
@@ -16,5 +20,9 @@ int luker_node_start(const char *const *argv, int argc);
 
 /// Whether the Node event loop thread is still running.
 bool luker_node_is_running(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 NS_ASSUME_NONNULL_END

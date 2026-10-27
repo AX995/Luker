@@ -18,6 +18,7 @@ final class ViewController: UIViewController {
     private let runtime = LukerRuntimeManager.shared
     private var webView: WKWebView?
     private var downloadShareViewController: UIViewController?
+    private var downloadDestinations: [ObjectIdentifier: URL] = [:]
 
     private let statusStack: UIStackView = {
         let stack = UIStackView()
@@ -239,7 +240,7 @@ extension ViewController: WKNavigationDelegate {
         if navigationResponse.canShowMIMEType {
             decisionHandler(.allow)
         } else {
-            decisionHandler(.becomeDownload)
+            decisionHandler(.download)
         }
     }
 
@@ -270,11 +271,12 @@ extension ViewController: WKDownloadDelegate {
             : suggestedFilename
         let destination = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
         try? FileManager.default.removeItem(at: destination)
+        downloadDestinations[ObjectIdentifier(download)] = destination
         completionHandler(destination)
     }
 
     func downloadDidFinish(_ download: WKDownload) {
-        guard let fileURL = download.destination else { return }
+        guard let fileURL = downloadDestinations.removeValue(forKey: ObjectIdentifier(download)) else { return }
         let alert = UIAlertController(
             title: nil,
             message: String(format: NSLocalizedString("download_saved", comment: ""), fileURL.lastPathComponent),
@@ -292,6 +294,7 @@ extension ViewController: WKDownloadDelegate {
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        downloadDestinations.removeValue(forKey: ObjectIdentifier(download))
         let alert = UIAlertController(
             title: nil,
             message: NSLocalizedString("download_failed", comment: ""),
