@@ -51,6 +51,16 @@ describe('image inspection output', () => {
         expect(getEntry(request).outputImage.mime).toBe('image/jpeg');
     });
 
+    test('derives the output size from the base64 payload when the dispatch omits it', () => {
+        const request = newRequest();
+        startImageInspection(request, { source: 'webui', prompt: 'a castle' });
+        completeImageInspection(request, { format: 'png', data: imageData });
+
+        const entry = getEntry(request);
+        expect(entry.outputSizeBytes).toBe(Buffer.from('fake-png-bytes').length);
+        expect(entry.outputImage.data).toBe(imageData);
+    });
+
     test('leaves the image empty when the dispatch has no bytes to record', () => {
         const request = newRequest();
         startImageInspection(request, { source: 'sd_webui', prompt: 'a castle' });

@@ -1511,6 +1511,18 @@ function parseComfyWorkflow(promptData) {
 // ---- Image Inspection ----
 
 /**
+ * Parse a `WxH` size string into numeric dimensions.
+ * @param {*} size
+ * @returns {{width: number, height: number}|null}
+ */
+function parseSizeDimensions(size) {
+    if (typeof size !== 'string') return null;
+    const [width, height] = size.toLowerCase().split('x').map(Number);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+    return { width, height };
+}
+
+/**
  * Extract normalized image generation metadata from various backend request bodies.
  * @param {string} source - Backend identifier
  * @param {object} body - request.body
@@ -1551,6 +1563,7 @@ export function extractImageMeta(source, body) {
         case 'sd_cpp':
             meta.prompt = body.prompt || '';
             meta.negativePrompt = body.negative_prompt || '';
+            meta.model = body.model || '';
             meta.width = body.width ?? null;
             meta.height = body.height ?? null;
             meta.steps = body.steps ?? null;
@@ -1586,16 +1599,15 @@ export function extractImageMeta(source, body) {
             break;
         case 'stability':
             meta.prompt = body.payload?.prompt || '';
+            meta.negativePrompt = body.payload?.negative_prompt || '';
             meta.model = body.model || '';
             meta.seed = body.payload?.seed ?? null;
             break;
         case 'electronhub': {
             meta.prompt = body.prompt || '';
             meta.model = body.model || '';
-            if (typeof body.size === 'string' && body.size.includes('x')) {
-                const [w, h] = body.size.split('x').map(Number);
-                if (w && h) { meta.width = w; meta.height = h; }
-            }
+            const dims = parseSizeDimensions(body.size);
+            if (dims) { meta.width = dims.width; meta.height = dims.height; }
             break;
         }
         case 'chutes':
@@ -1605,7 +1617,7 @@ export function extractImageMeta(source, body) {
             meta.width = body.width ?? null;
             meta.height = body.height ?? null;
             meta.steps = body.steps ?? null;
-            meta.cfgScale = body.guidance ?? null;
+            meta.cfgScale = body.guidance_scale ?? body.guidance ?? null;
             meta.seed = body.seed ?? null;
             break;
         case 'bfl':
@@ -1619,6 +1631,7 @@ export function extractImageMeta(source, body) {
             break;
         case 'falai':
             meta.prompt = body.prompt || '';
+            meta.negativePrompt = body.negative_prompt || '';
             meta.model = body.model || '';
             meta.width = body.width ?? null;
             meta.height = body.height ?? null;
@@ -1626,8 +1639,46 @@ export function extractImageMeta(source, body) {
             meta.cfgScale = body.guidance ?? null;
             meta.seed = body.seed ?? null;
             break;
+        case 'nanogpt':
+            meta.prompt = body.prompt || '';
+            meta.negativePrompt = body.negative_prompt || '';
+            meta.model = body.model || '';
+            meta.width = body.width ?? null;
+            meta.height = body.height ?? null;
+            meta.steps = body.num_steps ?? null;
+            meta.cfgScale = body.scale ?? null;
+            break;
+        case 'aimlapi': {
+            meta.prompt = body.prompt || '';
+            meta.model = body.model || '';
+            meta.width = body.width ?? null;
+            meta.height = body.height ?? null;
+            meta.steps = body.steps ?? null;
+            meta.cfgScale = body.guidance ?? null;
+            meta.seed = body.seed ?? null;
+            const dims = parseSizeDimensions(body.size);
+            if (dims) { meta.width = dims.width; meta.height = dims.height; }
+            break;
+        }
+        case 'workersai':
+            meta.prompt = body.prompt || '';
+            meta.negativePrompt = body.negative_prompt || '';
+            meta.model = body.model || '';
+            meta.width = body.width ?? null;
+            meta.height = body.height ?? null;
+            meta.steps = body.steps ?? null;
+            meta.cfgScale = body.scale ?? null;
+            meta.seed = body.seed ?? null;
+            break;
+        case 'zai': {
+            meta.prompt = body.prompt || '';
+            meta.model = body.model || '';
+            const dims = parseSizeDimensions(body.size);
+            if (dims) { meta.width = dims.width; meta.height = dims.height; }
+            break;
+        }
         default:
-            // huggingface, nanogpt, xai, and any future backends
+            // huggingface, xai, and any future backends
             meta.prompt = body.prompt || body.inputs || '';
             meta.model = body.model || '';
             break;
@@ -1700,13 +1751,15 @@ export function completeImageInspection(request, resultMeta) {
     entry.durationMs = Date.now() - entry.timestamp;
     entry.httpStatus = 200;
     if (resultMeta) {
+        const data = typeof resultMeta.data === 'string' ? resultMeta.data : '';
         entry.outputFormat = resultMeta.format || null;
-        entry.outputSizeBytes = resultMeta.sizeBytes ?? null;
-        if (typeof resultMeta.data === 'string' && resultMeta.data) {
+        entry.outputSizeBytes = resultMeta.sizeBytes
+            ?? (data ? Buffer.byteLength(data, 'base64') : null);
+        if (data) {
             entry.outputImage = {
                 type: 'image',
                 mime: String(resultMeta.mime || imageMimeFromFormat(entry.outputFormat)),
-                data: resultMeta.data,
+                data,
             };
         }
     }
