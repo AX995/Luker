@@ -1,0 +1,23 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+   Copyright (C) 2026 FunnyCups (https://github.com/funnycups) */
+
+"loading_runtime" = "正在启动本地 Luker 服务…";
+"loading_webview" = "服务已启动，正在载入界面…";
+"loading_failed_with_reason" = "服务启动失败：%@";
+"loading_failed_timeout" = "服务启动超时：本地服务未在预期时间内就绪。";
+
+"runtime_start_error_node_exit_code" = "Node 进程退出，返回码 %ld";
+"runtime_start_error_no_available_port" = "在端口范围 %ld..%ld 内没有可用端口";
+"runtime_failure_reason_unknown_error" = "未知错误";
+
+"diagnostics_share" = "分享诊断信息";
+"retry" = "重试";
+"close" = "关闭";
+"ok" = "好";
+"cancel" = "取消";
+"no_app_can_open_link" = "没有可打开此链接的应用";
+
+"download_saved" = "文件已保存：%@";
+"download_saved_fallback_name" = "文件";
+"download_share" = "分享";
+"download_failed" = "下载失败，请重试。";

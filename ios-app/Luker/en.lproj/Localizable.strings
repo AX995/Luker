@@ -1,0 +1,23 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+   Copyright (C) 2026 FunnyCups (https://github.com/funnycups) */
+
+"loading_runtime" = "Starting local Luker service...";
+"loading_webview" = "Service is ready. Loading interface...";
+"loading_failed_with_reason" = "Failed to start the service: %@";
+"loading_failed_timeout" = "Service startup timed out: the local service did not become ready in time.";
+
+"runtime_start_error_node_exit_code" = "Node process exited with code %ld";
+"runtime_start_error_no_available_port" = "No available port in range %ld..%ld";
+"runtime_failure_reason_unknown_error" = "unknown error";
+
+"diagnostics_share" = "Share Diagnostics";
+"retry" = "Retry";
+"close" = "Close";
+"ok" = "OK";
+"cancel" = "Cancel";
+"no_app_can_open_link" = "No app can open this link";
+
+"download_saved" = "File saved: %@";
+"download_saved_fallback_name" = "file";
+"download_share" = "Share";
+"download_failed" = "Download failed. Please try again.";

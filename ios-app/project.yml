@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 FunnyCups (https://github.com/funnycups)
+
+name: Luker
+options:
+  bundleIdPrefix: com.luker
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CLANG_CXX_LANGUAGE_STANDARD: gnu++17
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    MARKETING_VERSION: "0.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_OBJC_BRIDGING_HEADER: Luker/Luker-Bridging-Header.h
+    # The NodeMobile headers shipped in the nodejs-mobile-ios runtime zip.
+    HEADER_SEARCH_PATHS: ["$(SRCROOT)/vendor/include/node", "$(SRCROOT)/vendor/include"]
+targets:
+  Luker:
+    type: application
+    platform: iOS
+    sources:
+      - path: Luker
+        excludes:
+          - "Resources/nodejs-project/**"
+      - path: Luker/Resources/nodejs-project
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - framework: vendor/NodeMobile.xcframework
+        embed: true
+    info:
+      path: Luker/Info.plist
+      properties:
+        CFBundleDisplayName: Luker
+        CFBundleName: Luker
+        CFBundleIdentifier: com.luker.app
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSupportsIndirectInputEvents: true
+        # The local server listens on the loopback interface only.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSCameraUsageDescription: Luker uses the camera for character card backgrounds and vision inputs.
+        NSMicrophoneUsageDescription: Luker uses the microphone for speech-to-text inputs.
+schemes:
+  Luker:
+    build:
+      targets:
+        Luker: all
+    run:
+      config: Debug
+    archive:
+      config: Release
