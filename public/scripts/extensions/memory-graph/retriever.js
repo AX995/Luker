@@ -194,7 +194,11 @@ async function rerankBucket(query, bucket, rerankProfile, settings, store, signa
  *   Omit both perTypeK and defaultPerTypeK to get legacy single-pool behavior
  *   (everything in one bucket, capped by maxResults).
  * @param {AbortSignal} [options.signal]
- * @returns {Promise<{candidates: Array, meta: object}>}
+ * @returns {Promise<{candidates: Array, meta: object}>} `meta.skipCode` is
+ *   set only for deterministic skips (empty query / no graph nodes). Zero
+ *   vector hits is a successful empty selection with no `skipCode`.
+ * @throws {Error} when the embedding profile is missing/invalid or the
+ *   vector search fails; such runs must not be cached as empty selections.
  */
 export async function runRagRecall(store, queryText, chatId, settings, options = {}) {
     const {
@@ -219,6 +223,7 @@ export async function runRagRecall(store, queryText, chatId, settings, options =
         meta.rewrittenQuery = rewrittenTrimmed;
     }
     if (!effectiveQuery) {
+        meta.skipCode = 'empty_query';
         meta.skipReasons.push('Empty query');
         timings.totalMs = Math.round((performance.now() - t0) * 10) / 10;
         meta.timings = timings;
@@ -226,6 +231,7 @@ export async function runRagRecall(store, queryText, chatId, settings, options =
     }
 
     if (!hasRecallableNodes(store)) {
+        meta.skipCode = 'no_graph_nodes';
         meta.skipReasons.push('No graph nodes');
         timings.totalMs = Math.round((performance.now() - t0) * 10) / 10;
         meta.timings = timings;
@@ -233,11 +239,9 @@ export async function runRagRecall(store, queryText, chatId, settings, options =
     }
 
     const embeddingProfile = getVectorConfigFromSettings(settings);
-    if (!validateVectorConfig(embeddingProfile).valid) {
-        meta.skipReasons.push('No embedding profile selected, RAG recall skipped');
-        timings.totalMs = Math.round((performance.now() - t0) * 10) / 10;
-        meta.timings = timings;
-        return { candidates: [], meta };
+    const profileValidation = validateVectorConfig(embeddingProfile);
+    if (!profileValidation.valid) {
+        throw new Error(profileValidation.error || 'No embedding profile selected');
     }
 
     // Vector pre-filter — auto-lift topK so per-type quotas can fill.
@@ -252,12 +256,12 @@ export async function runRagRecall(store, queryText, chatId, settings, options =
             signal,
         });
     } catch (err) {
+        // Vector / embedding failures are not recall results. Propagate them
+        // so the caller can surface the failure and skip caching instead of
+        // treating an empty candidate list as a successful empty selection.
         if (isAbortError(err)) throw err;
         console.warn(`[${MODULE_NAME}] Vector search failed`, err);
-        meta.skipReasons.push('Vector search failed');
-        timings.totalMs = Math.round((performance.now() - t0) * 10) / 10;
-        meta.timings = timings;
-        return { candidates: [], meta };
+        throw err;
     }
     timings.vectorMs = Math.round((performance.now() - tVec) * 10) / 10;
     meta.vectorHits = vectorHits.length;

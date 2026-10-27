@@ -90,6 +90,9 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Added a configuration studio that edits the schema, extraction and recall prompts, node-type text, and behavior parameters through reviewable AI proposals; character-scoped parameter writes now store only values that differ from the global settings.
 - Fixed regenerating a turn during its Memory Graph extraction leaving the extraction processing the deleted content.
 - Fixed RAG recall running on a graph with no nodes.
+- Fixed Memory Graph LLM recall falling back to every candidate node and caching the result when recall failed.
+- Fixed Memory Graph RAG recall caching an empty result on failure.
+- Fixed a previous turn's Memory Graph recall result leaking into the next prompt.
 
 ### Iteration Studio
 

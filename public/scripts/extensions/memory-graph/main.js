@@ -6731,6 +6731,10 @@ function buildLastUserAnchor(context, payloadMessages) {
     return buildLastUserAnchorFromMessages(payloadMessages);
 }
 
+function invalidateLatestRecallSnapshot() {
+    latestRecallSnapshot = null;
+}
+
 function canReuseLatestRecallSnapshot(chatKey, anchor) {
     if (!latestRecallSnapshot || typeof latestRecallSnapshot !== 'object') {
         return false;
@@ -7151,17 +7155,14 @@ async function chooseRecallRoute(context, settings, recallState) {
             reason: String(parsed?.reason || ''),
         };
     } catch (error) {
-        if (isAbortError(error, recallState?.abortSignal || null)) {
-            throw error;
+        // A route failure means recall did not produce a selection. Do not
+        // fall back to "select every candidate": that turns an outage into a
+        // cached, plausible-looking recall result and injects nodes the model
+        // never chose. Propagate so the caller can surface it and skip caching.
+        if (!isAbortError(error, recallState?.abortSignal || null)) {
+            console.warn(`[${MODULE_NAME}] recall route failed`, error);
         }
-        console.warn(`[${MODULE_NAME}] recall route failed`, error);
-        return {
-            action: 'finalize',
-            selected_node_ids: recallState.candidates.map(node => node.id),
-            expand_plan: [],
-            referenced_always_inject_ids: [],
-            reason: 'Fallback route used.',
-        };
+        throw error;
     }
 }
 
@@ -7330,14 +7331,12 @@ async function chooseFocusNodes(context, settings, recallState) {
             reason: String(parsed?.reason || ''),
         };
     } catch (error) {
-        if (isAbortError(error, recallState?.abortSignal || null)) {
-            throw error;
+        // Same contract as chooseRecallRoute: a failed finalize is not a
+        // selection. Never cache or inject the whole candidate set.
+        if (!isAbortError(error, recallState?.abortSignal || null)) {
+            console.warn(`[${MODULE_NAME}] recall select failed`, error);
         }
-        console.warn(`[${MODULE_NAME}] recall select failed`, error);
-        return {
-            selected_node_ids: recallState.candidates.map(node => node.id),
-            reason: 'Fallback selection used.',
-        };
+        throw error;
     }
 }
 
@@ -8622,6 +8621,208 @@ async function openGraphIterationStudioWithDeps(context) {
     });
 }
 
+/**
+ * Run the configured recall strategy and classify the outcome.
+ *
+ * `outcome: 'skip'` means the pipeline deliberately did not attempt recall
+ * (recall disabled, no recallable nodes, empty query). Any provider,
+ * transport, or tool-validation failure throws — the caller must not cache
+ * or inject a result for those.
+ */
+async function collectRecallSelection(context, store, payload, settings, {
+    chatKey,
+    alwaysInjectNodes,
+    recallRunToken,
+}) {
+    const recallMethod = String(settings.recallMethod || 'llm').trim().toLowerCase();
+    let selectedNodes = [];
+    let trace = [];
+    let outcome = 'success';
+
+    if (!settings.recallEnabled) {
+        trace = [{ step: 'skip_recall_disabled' }];
+        outcome = 'skip';
+    } else if (recallMethod === 'rag' && !hasRecallableNodes(store)) {
+        // Fresh chat (or a store whose nodes are all archived): there is
+        // nothing RAG could return, so skip the index sync, the optional
+        // query-rewrite LLM call, and the query embedding entirely.
+        trace = [{ step: 'skip_rag_recall_no_nodes' }];
+        outcome = 'skip';
+    } else if (recallMethod === 'rag') {
+        const queryBundle = getRecallQueryBundle(payload, context, settings);
+        const queryText = normalizeText(queryBundle.fullText || '');
+
+        // Ensure vector index is synced before first RAG recall
+        const vs = ensureVectorIndexState(store);
+        if (!vs.hashToNodeId || Object.keys(vs.hashToNodeId).length === 0) {
+            const syncVectorConfig = getVectorConfigFromSettings(settings);
+            const effectiveSchema = getEffectiveNodeTypeSchema(context, settings);
+            await syncVectorIndex(store, syncVectorConfig, chatKey, {
+                schema: effectiveSchema,
+                signal: payload?.signal,
+            });
+            // syncVectorIndex mutates store.vectorIndexState in place, which is
+            // a meta-sidecar field after Commit B. Without this persist call
+            // the freshly-built hash map would only live in memoryStoreCache
+            // and the next refreshMemoryStoreCacheFromFloorState would wipe
+            // it — forcing a re-embed on every chat reload.
+            //
+            // No try/catch: silently warning here was the reason RAG chats
+            // re-embedded the full corpus every recall. If the persist
+            // fails, let injectMemoryPrompts' outer catch surface it as a
+            // "Recall injection failed" notice so the user can act on the
+            // real failure (auth, disk, target changed) instead of paying
+            // the full-corpus cost on every subsequent turn.
+            await persistMemoryStoreByChatKey(context, chatKey, store, { syncPersistentProjection: false });
+        }
+
+        let rewrittenQuery = null;
+        const degradedReasons = [];
+        if (settings.ragUseQueryRewrite && String(settings.ragRewriteApiPresetName || '').trim()) {
+            try {
+                rewrittenQuery = await runQueryRewrite(context, settings, queryBundle, {
+                    abortSignal: payload?.signal || null,
+                    recallRunToken,
+                });
+            } catch (error) {
+                if (isAbortError(error, payload?.signal)) {
+                    throw error;
+                }
+                // The selection is still valid without a rewrite; record the
+                // degradation and use the raw query instead of failing recall.
+                console.warn(`[${MODULE_NAME}] Query rewrite failed; using raw query`, error);
+                degradedReasons.push('Query rewrite failed, used raw query');
+            }
+            throwIfRecallRunInvalid(recallRunToken, payload?.signal, 'Memory recall aborted.');
+        }
+
+        const useRerank = Boolean(settings.ragUseRerank);
+        const rerankProfile = useRerank ? getRerankProfileFromSettings(settings) : null;
+        const { perTypeK, defaultPerTypeK } = buildRagPerTypeQuotas(context, settings);
+
+        const ragResult = await runRagRecall(store, queryText, chatKey, settings, {
+            maxResults: Number(settings.hybridMaxResults) || 15,
+            vectorTopK: Number(settings.vectorTopK) || 20,
+            useRerank,
+            rerankProfile,
+            rewrittenQuery,
+            perTypeK,
+            defaultPerTypeK,
+            signal: payload?.signal,
+        });
+        throwIfRecallRunInvalid(recallRunToken, payload?.signal, 'Memory recall aborted.');
+
+        if (ragResult.meta?.skipCode) {
+            trace = [{
+                step: `skip_rag_recall_${ragResult.meta.skipCode}`,
+                method: 'rag',
+                meta: ragResult.meta,
+            }];
+            outcome = 'skip';
+        } else {
+            if (degradedReasons.length > 0) {
+                ragResult.meta.skipReasons = [
+                    ...(Array.isArray(ragResult.meta.skipReasons) ? ragResult.meta.skipReasons : []),
+                    ...degradedReasons,
+                ];
+            }
+
+            const alwaysInjectSet = new Set(alwaysInjectNodes.map(n => n?.id).filter(Boolean));
+            const latestSeqIndex = getLatestSeqIndex(store);
+            const excludeMessages = Math.max(0, Number(settings.recentRawTurns ?? defaultSettings.recentRawTurns));
+
+            selectedNodes = ragResult.candidates
+                .map(c => store.nodes?.[c.nodeId])
+                .filter(node => node && !node.archived && !alwaysInjectSet.has(node.id))
+                .filter(node => !isNodeInRecentExcludeWindow(node, latestSeqIndex, excludeMessages))
+                .sort(compareNodesByTimeline);
+
+            // Structured recall diagnostic. Emits one row per RAG recall so users
+            // can grep `[memory_graph] rag_recall` in DevTools when injection ends
+            // up empty or lopsided. All numbers are counts so the payload stays
+            // small — actual candidate lists are already in `store.lastRecallTrace`.
+            // The three stages must add up for anyone reading the log to know
+            // WHERE candidates disappeared:
+            //   vector_hits   → returned by the embedding backend (post store-filter)
+            //   rag_candidates → after per-type bucketing + optional rerank + maxResults trim
+            //   selected      → after main-flow filters (alwaysInject exclusion + recent-turns window)
+            try {
+                const candByType = ragResult.candidates.reduce((acc, c) => {
+                    const t = c.nodeType || 'unknown';
+                    acc[t] = (acc[t] || 0) + 1;
+                    return acc;
+                }, {});
+                const droppedAlwaysInject = ragResult.candidates.filter((c) => {
+                    const n = store.nodes?.[c.nodeId];
+                    return n && alwaysInjectSet.has(n.id);
+                }).length;
+                const droppedRecentWindow = ragResult.candidates.filter((c) => {
+                    const n = store.nodes?.[c.nodeId];
+                    return n && !alwaysInjectSet.has(n.id)
+                        && isNodeInRecentExcludeWindow(n, latestSeqIndex, excludeMessages);
+                }).length;
+                const droppedArchivedOrMissing = ragResult.candidates.filter((c) => {
+                    const n = store.nodes?.[c.nodeId];
+                    return !n || n.archived;
+                }).length;
+                const perBucketFinal = ragResult.meta?.perBucket
+                    ? Object.fromEntries(
+                        Object.entries(ragResult.meta.perBucket)
+                            .map(([type, m]) => [type, m?.finalCount ?? 0]),
+                    )
+                    : null;
+                console.info(`[${MODULE_NAME}] rag_recall`, {
+                    chatKey,
+                    bucketing: {
+                        perTypeK: perTypeK || null,
+                        defaultPerTypeK,
+                        active: Boolean(perBucketFinal),
+                    },
+                    vector: {
+                        topKRequested: Number(settings.vectorTopK) || 20,
+                        hits: ragResult.meta?.vectorHits ?? 0,
+                    },
+                    rerank: {
+                        enabled: useRerank,
+                        applied: Boolean(ragResult.meta?.rerankApplied),
+                    },
+                    candidates: {
+                        total: ragResult.candidates.length,
+                        byType: candByType,
+                        perBucketFinal,
+                    },
+                    dropped: {
+                        archivedOrMissing: droppedArchivedOrMissing,
+                        alwaysInjectOverlap: droppedAlwaysInject,
+                        recentTurnsWindow: droppedRecentWindow,
+                    },
+                    selected: {
+                        count: selectedNodes.length,
+                        recentTurnsWindowSize: excludeMessages,
+                        alwaysInjectSetSize: alwaysInjectSet.size,
+                    },
+                    skipReasons: ragResult.meta?.skipReasons || [],
+                });
+            } catch (logErr) {
+                console.warn(`[${MODULE_NAME}] rag_recall log emit failed`, logErr);
+            }
+
+            trace = [{
+                step: 'rag_recall',
+                method: 'rag',
+                meta: ragResult.meta,
+                selected_ids: selectedNodes.map(n => n.id),
+            }];
+        }
+    } else {
+        const llmResult = await runLLMDrivenRecall(context, store, payload);
+        selectedNodes = llmResult.selectedNodes;
+        trace = llmResult.trace;
+    }
+
+    return { selectedNodes, trace, outcome };
+}
+
 async function injectMemoryPrompts(context, payload) {
     const settings = getEffectiveSettings(context, getSettings());
     const generationType = String(payload?.type || '').trim().toLowerCase();
@@ -8650,6 +8851,7 @@ async function injectMemoryPrompts(context, payload) {
     }
 
     if (!settings.enabled) {
+        latestRecallSnapshot = null;
         await clearAllMemoryLorebookProjection(context, settings);
         updateUiStatus(i18n('Memory disabled, cleared memory lorebook injections.'));
         return false;
@@ -8657,6 +8859,7 @@ async function injectMemoryPrompts(context, payload) {
 
     const store = await ensureStoreSyncedWithChat(context);
     if (!store) {
+        latestRecallSnapshot = null;
         updateUiStatus(i18n('Memory store unavailable for current chat.'));
         return false;
     }
@@ -8665,13 +8868,12 @@ async function injectMemoryPrompts(context, payload) {
     throwIfRecallRunInvalid(recallRunToken, payload?.signal, 'Memory recall aborted.');
     const corePacket = normalizeMultilineText(persistentSync.corePacket || '');
     if (isAbortSignalLike(payload?.signal) && payload.signal.aborted) {
-        const chatKey = getChatKey(context);
-        store.lastRecallProjection = { at: Date.now(), blocks: { corePacket, focusPacket: '' } };
-        await persistRecallMetadataByChatKey(context, chatKey, {
-            trace: store.lastRecallTrace,
-            projection: store.lastRecallProjection,
-        });
-        await syncRuntimeLorebookProjection(context, settings, store);
+        // Cancellation does not produce a recall result. The pre-scan
+        // RUNTIME clear already removed any previous focus, so there is
+        // nothing to write here. Persistent injection is unaffected.
+        if (payload && typeof payload === 'object') {
+            payload.__lukerRpgMemoryNeedRescan = Boolean(persistentSync.changed);
+        }
         updateUiStatus(isAbortSignalLike(generationAbortSignal) && generationAbortSignal.aborted
             ? i18n('Generation aborted. Skipped memory recall.')
             : i18n('Memory recall cancelled by user.'));
@@ -8705,7 +8907,6 @@ async function injectMemoryPrompts(context, payload) {
         return Boolean(persistentSync.changed || runtimeSync.changed);
     }
 
-    const recallMethod = String(settings.recallMethod || 'llm').trim().toLowerCase();
     // Persistent injection (alwaysInject nodes) ran above via
     // syncPersistentLorebookProjection. Collect here independently of recall
     // so __recordInjectedNodeIds publishes the real set even when recall is
@@ -8719,157 +8920,76 @@ async function injectMemoryPrompts(context, payload) {
     );
     let selectedNodes = [];
     let trace = [];
-
-    if (!settings.recallEnabled) {
-        // Skip recall; fall through to clear runtime lorebook projection.
-    } else if (recallMethod === 'rag' && !hasRecallableNodes(store)) {
-        // Fresh chat (or a store whose nodes are all archived): there is
-        // nothing RAG could return, so skip the index sync, the optional
-        // query-rewrite LLM call, and the query embedding entirely.
-        trace = [{ step: 'skip_rag_recall_no_nodes' }];
-    } else if (recallMethod === 'rag') {
-        const queryBundle = getRecallQueryBundle(payload, context, settings);
-        const queryText = normalizeText(queryBundle.fullText || '');
-
-        // Ensure vector index is synced before first RAG recall
-        const vs = ensureVectorIndexState(store);
-        if (!vs.hashToNodeId || Object.keys(vs.hashToNodeId).length === 0) {
-            const syncVectorConfig = getVectorConfigFromSettings(settings);
-            const effectiveSchema = getEffectiveNodeTypeSchema(context, settings);
-            await syncVectorIndex(store, syncVectorConfig, chatKey, {
-                schema: effectiveSchema,
-                signal: payload?.signal,
+    try {
+        const selection = await collectRecallSelection(context, store, payload, settings, {
+            chatKey,
+            alwaysInjectNodes,
+            recallRunToken,
+        });
+        selectedNodes = selection.selectedNodes;
+        trace = selection.trace;
+        if (selection.outcome === 'skip') {
+            throwIfRecallRunInvalid(recallRunToken, payload?.signal, 'Memory recall aborted.');
+            const skipProjection = { at: Date.now(), blocks: { corePacket, focusPacket: '' } };
+            store.lastRecallTrace = trace;
+            store.lastRecallProjection = skipProjection;
+            __recordInjectedNodeIds({
+                alwaysInjectIds: alwaysInjectNodes.map(node => String(node?.id || '')).filter(Boolean),
+                recallSelectedIds: [],
             });
-            // syncVectorIndex mutates store.vectorIndexState in place, which is
-            // a meta-sidecar field after Commit B. Without this persist call
-            // the freshly-built hash map would only live in memoryStoreCache
-            // and the next refreshMemoryStoreCacheFromFloorState would wipe
-            // it — forcing a re-embed on every chat reload.
-            //
-            // No try/catch: silently warning here was the reason RAG chats
-            // re-embedded the full corpus every recall. If the persist
-            // fails, let injectMemoryPrompts' outer catch surface it as a
-            // "Recall injection failed" notice so the user can act on the
-            // real failure (auth, disk, target changed) instead of paying
-            // the full-corpus cost on every subsequent turn.
-            await persistMemoryStoreByChatKey(context, chatKey, store, { syncPersistentProjection: false });
-        }
-
-        let rewrittenQuery = null;
-        if (settings.ragUseQueryRewrite && String(settings.ragRewriteApiPresetName || '').trim()) {
-            rewrittenQuery = await runQueryRewrite(context, settings, queryBundle, {
-                abortSignal: payload?.signal || null,
-                recallRunToken,
+            await persistRecallMetadataByChatKey(context, chatKey, {
+                trace,
+                projection: skipProjection,
             });
             throwIfRecallRunInvalid(recallRunToken, payload?.signal, 'Memory recall aborted.');
+            const skipRuntimeSync = await syncRuntimeLorebookProjection(context, settings, store);
+            throwIfRecallRunInvalid(recallRunToken, payload?.signal, 'Memory recall aborted.');
+            if (payload && typeof payload === 'object') {
+                payload.__lukerRpgMemoryNeedRescan = Boolean(persistentSync.changed || skipRuntimeSync.changed);
+            }
+            updateUiStatus(i18n('Memory recall skipped.'));
+            return Boolean(persistentSync.changed || skipRuntimeSync.changed);
         }
-
-        const useRerank = Boolean(settings.ragUseRerank);
-        const rerankProfile = useRerank ? getRerankProfileFromSettings(settings) : null;
-        const { perTypeK, defaultPerTypeK } = buildRagPerTypeQuotas(context, settings);
-
-        const ragResult = await runRagRecall(store, queryText, chatKey, settings, {
-            maxResults: Number(settings.hybridMaxResults) || 15,
-            vectorTopK: Number(settings.vectorTopK) || 20,
-            useRerank,
-            rerankProfile,
-            rewrittenQuery,
-            perTypeK,
-            defaultPerTypeK,
-            signal: payload?.signal,
-        });
-        throwIfRecallRunInvalid(recallRunToken, payload?.signal, 'Memory recall aborted.');
-
-        const alwaysInjectSet = new Set(alwaysInjectNodes.map(n => n?.id).filter(Boolean));
-        const latestSeqIndex = getLatestSeqIndex(store);
-        const excludeMessages = Math.max(0, Number(settings.recentRawTurns ?? defaultSettings.recentRawTurns));
-
-        selectedNodes = ragResult.candidates
-            .map(c => store.nodes?.[c.nodeId])
-            .filter(node => node && !node.archived && !alwaysInjectSet.has(node.id))
-            .filter(node => !isNodeInRecentExcludeWindow(node, latestSeqIndex, excludeMessages))
-            .sort(compareNodesByTimeline);
-
-        // Structured recall diagnostic. Emits one row per RAG recall so users
-        // can grep `[memory_graph] rag_recall` in DevTools when injection ends
-        // up empty or lopsided. All numbers are counts so the payload stays
-        // small — actual candidate lists are already in `store.lastRecallTrace`.
-        // The three stages must add up for anyone reading the log to know
-        // WHERE candidates disappeared:
-        //   vector_hits   → returned by the embedding backend (post store-filter)
-        //   rag_candidates → after per-type bucketing + optional rerank + maxResults trim
-        //   selected      → after main-flow filters (alwaysInject exclusion + recent-turns window)
-        try {
-            const candByType = ragResult.candidates.reduce((acc, c) => {
-                const t = c.nodeType || 'unknown';
-                acc[t] = (acc[t] || 0) + 1;
-                return acc;
-            }, {});
-            const droppedAlwaysInject = ragResult.candidates.filter((c) => {
-                const n = store.nodes?.[c.nodeId];
-                return n && alwaysInjectSet.has(n.id);
-            }).length;
-            const droppedRecentWindow = ragResult.candidates.filter((c) => {
-                const n = store.nodes?.[c.nodeId];
-                return n && !alwaysInjectSet.has(n.id)
-                    && isNodeInRecentExcludeWindow(n, latestSeqIndex, excludeMessages);
-            }).length;
-            const droppedArchivedOrMissing = ragResult.candidates.filter((c) => {
-                const n = store.nodes?.[c.nodeId];
-                return !n || n.archived;
-            }).length;
-            const perBucketFinal = ragResult.meta?.perBucket
-                ? Object.fromEntries(
-                    Object.entries(ragResult.meta.perBucket)
-                        .map(([type, m]) => [type, m?.finalCount ?? 0]),
-                )
-                : null;
-            console.info(`[${MODULE_NAME}] rag_recall`, {
-                chatKey,
-                bucketing: {
-                    perTypeK: perTypeK || null,
-                    defaultPerTypeK,
-                    active: Boolean(perBucketFinal),
-                },
-                vector: {
-                    topKRequested: Number(settings.vectorTopK) || 20,
-                    hits: ragResult.meta?.vectorHits ?? 0,
-                },
-                rerank: {
-                    enabled: useRerank,
-                    applied: Boolean(ragResult.meta?.rerankApplied),
-                },
-                candidates: {
-                    total: ragResult.candidates.length,
-                    byType: candByType,
-                    perBucketFinal,
-                },
-                dropped: {
-                    archivedOrMissing: droppedArchivedOrMissing,
-                    alwaysInjectOverlap: droppedAlwaysInject,
-                    recentTurnsWindow: droppedRecentWindow,
-                },
-                selected: {
-                    count: selectedNodes.length,
-                    recentTurnsWindowSize: excludeMessages,
-                    alwaysInjectSetSize: alwaysInjectSet.size,
-                },
-                skipReasons: ragResult.meta?.skipReasons || [],
-            });
-        } catch (logErr) {
-            console.warn(`[${MODULE_NAME}] rag_recall log emit failed`, logErr);
+    } catch (error) {
+        if (isAbortError(error, payload?.signal)
+            || (Number(recallRunToken) > 0 && Number(recallRunToken) !== activeRecallRunToken)) {
+            if (payload && typeof payload === 'object') {
+                payload.__lukerRpgMemoryNeedRescan = Boolean(persistentSync.changed);
+            }
+            throw error;
         }
-
-        trace = [{
-            step: 'rag_recall',
-            method: 'rag',
-            meta: ragResult.meta,
-            selected_ids: selectedNodes.map(n => n.id),
+        console.error(`[${MODULE_NAME}] Recall selection failed`, error);
+        const failureTrace = [{
+            step: 'recall_failed',
+            method: String(settings.recallMethod || 'llm').trim().toLowerCase(),
+            message: String(error?.message || error),
         }];
-    } else {
-        const llmResult = await runLLMDrivenRecall(context, store, payload);
-        selectedNodes = llmResult.selectedNodes;
-        trace = llmResult.trace;
+        const failureProjection = { at: Date.now(), blocks: { corePacket, focusPacket: '' } };
+        store.lastRecallTrace = failureTrace;
+        store.lastRecallProjection = failureProjection;
+        __recordInjectedNodeIds({
+            alwaysInjectIds: (Array.isArray(persistentSync.alwaysInjectNodes) ? persistentSync.alwaysInjectNodes : [])
+                .map(node => String(node?.id || ''))
+                .filter(Boolean),
+            recallSelectedIds: [],
+        });
+        try {
+            await persistRecallMetadataByChatKey(context, chatKey, {
+                trace: failureTrace,
+                projection: failureProjection,
+            });
+        } catch (metadataError) {
+            console.error(`[${MODULE_NAME}] Failed to persist recall failure metadata`, metadataError);
+        }
+        try {
+            await syncRuntimeLorebookProjection(context, settings, store);
+        } catch (runtimeError) {
+            console.error(`[${MODULE_NAME}] Failed to clear runtime focus after recall failure`, runtimeError);
+        }
+        if (payload && typeof payload === 'object') {
+            payload.__lukerRpgMemoryNeedRescan = Boolean(persistentSync.changed);
+        }
+        throw error;
     }
 
     throwIfRecallRunInvalid(recallRunToken, payload?.signal, 'Memory recall aborted.');
@@ -9000,8 +9120,12 @@ async function safeInjectMemoryPrompts(context, payload, trigger = 'after_world_
         if (result?.stopped) {
             syncMutableGenerationPayloadState(payload, effectivePayload);
             if (payload && typeof payload === 'object') {
-                payload.__lukerRpgMemoryNeedRescan = false;
-                payload.requestRescan = false;
+                // A recall-only stop still leaves the persistent channel
+                // authoritative for this prompt. Keep any rescan request the
+                // injection path recorded for a post-scan persistent update.
+                const needRescan = Boolean(payload.__lukerRpgMemoryNeedRescan);
+                payload.__lukerRpgMemoryNeedRescan = needRescan;
+                payload.requestRescan = needRescan;
             }
             updateUiStatus(i18n('Memory recall cancelled by user.'));
             clearPersistentRuntimeNotice();
@@ -9018,8 +9142,9 @@ async function safeInjectMemoryPrompts(context, payload, trigger = 'after_world_
         syncMutableGenerationPayloadState(payload, effectivePayload);
         if (isAbortError(error, effectivePayload?.signal)) {
             if (payload && typeof payload === 'object') {
-                payload.__lukerRpgMemoryNeedRescan = false;
-                payload.requestRescan = false;
+                const needRescan = Boolean(payload.__lukerRpgMemoryNeedRescan);
+                payload.__lukerRpgMemoryNeedRescan = needRescan;
+                payload.requestRescan = needRescan;
             }
             const generationAborted = Boolean(isAbortSignalLike(payload?.signal) && payload.signal.aborted);
             updateUiStatus(generationAborted
@@ -14166,6 +14291,7 @@ function updateAdvancedScopeIndicator(root, scopeInfo) {
 
 async function persistSchemaToGlobal(settings, schema) {
     settings.nodeTypeSchema = normalizeNodeTypeSchema(schema);
+    invalidateLatestRecallSnapshot();
     await saveSettings();
 }
 
@@ -14174,11 +14300,13 @@ async function persistSchemaToCharacter(context, avatar, schema) {
     if (!targetAvatar) {
         return false;
     }
+    invalidateLatestRecallSnapshot();
     return await persistCharacterSchemaOverride(context, targetAvatar, schema);
 }
 
 async function persistAdvancedToGlobal(settings, advancedSettings) {
     applyAdvancedSettings(settings, advancedSettings);
+    invalidateLatestRecallSnapshot();
     await saveSettings();
 }
 
@@ -14187,6 +14315,7 @@ async function persistAdvancedToCharacter(context, avatar, advancedSettings) {
     if (!targetAvatar) {
         return false;
     }
+    invalidateLatestRecallSnapshot();
     return await persistCharacterAdvancedOverride(context, targetAvatar, advancedSettings);
 }
 
@@ -14511,6 +14640,7 @@ function applyAdvancedTabToLiveSettings(root, settings) {
     if (!values) return;
     const normalized = normalizeAdvancedSettings(values, settings);
     applyAdvancedSettings(settings, normalized);
+    invalidateLatestRecallSnapshot();
     markAdvancedTabDirty(root, true);
 }
 
@@ -14852,6 +14982,7 @@ function bindUi() {
 
     root.find('#luker_rpg_memory_enabled').off('input').on('input', function () {
         settings.enabled = Boolean(jQuery(this).prop('checked'));
+        invalidateLatestRecallSnapshot();
         syncGenerationVisibleHistoryRuntimeRegexScripts();
         void syncMemoryLorebookActivation(getContext(), settings);
         if (settings.enabled) {
@@ -14865,6 +14996,7 @@ function bindUi() {
 
     root.find('#luker_rpg_memory_recall_enabled').off('input').on('input', function () {
         settings.recallEnabled = Boolean(jQuery(this).prop('checked'));
+        invalidateLatestRecallSnapshot();
         saveSettingsDebounced();
     });
 
@@ -14939,17 +15071,20 @@ function bindUi() {
 
     root.find('#luker_rpg_memory_recall_method').off('change').on('change', function () {
         settings.recallMethod = String(jQuery(this).val() || 'llm').trim();
+        invalidateLatestRecallSnapshot();
         updateRecallMethodVisibility();
         saveSettingsDebounced();
     });
 
     root.find('#luker_rpg_memory_vector_topk').off('change input').on('change input', function () {
         settings.vectorTopK = Math.max(5, Math.min(100, Math.floor(Number(jQuery(this).val()) || 20)));
+        invalidateLatestRecallSnapshot();
         jQuery(this).val(String(settings.vectorTopK));
         saveSettingsDebounced();
     });
     root.find('#luker_rpg_memory_hybrid_max_results').off('change input').on('change input', function () {
         settings.hybridMaxResults = Math.max(3, Math.min(50, Math.floor(Number(jQuery(this).val()) || 15)));
+        invalidateLatestRecallSnapshot();
         jQuery(this).val(String(settings.hybridMaxResults));
         saveSettingsDebounced();
     });
@@ -14957,39 +15092,46 @@ function bindUi() {
         const raw = Number(jQuery(this).val());
         const next = Number.isFinite(raw) ? raw : defaultSettings.ragDefaultPerTypeK;
         settings.ragDefaultPerTypeK = Math.max(0, Math.min(50, Math.floor(next)));
+        invalidateLatestRecallSnapshot();
         jQuery(this).val(String(settings.ragDefaultPerTypeK));
         saveSettingsDebounced();
     });
 
     root.find('#luker_rpg_memory_embedding_profile').off('change').on('change', function () {
         settings.embeddingProfileId = String(jQuery(this).val() || '');
+        invalidateLatestRecallSnapshot();
         saveSettingsDebounced();
     });
 
     root.find('#luker_rpg_memory_rerank_profile').off('change').on('change', function () {
         settings.rerankProfileId = String(jQuery(this).val() || '');
+        invalidateLatestRecallSnapshot();
         saveSettingsDebounced();
     });
 
     root.find('#luker_rpg_memory_rag_use_rerank').off('input').on('input', function () {
         settings.ragUseRerank = Boolean(jQuery(this).prop('checked'));
+        invalidateLatestRecallSnapshot();
         updateRecallMethodVisibility();
         saveSettingsDebounced();
     });
 
     root.find('#luker_rpg_memory_rag_use_query_rewrite').off('input').on('input', function () {
         settings.ragUseQueryRewrite = Boolean(jQuery(this).prop('checked'));
+        invalidateLatestRecallSnapshot();
         updateRecallMethodVisibility();
         saveSettingsDebounced();
     });
 
     root.find('#luker_rpg_memory_rag_rewrite_api_preset').off('change').on('change', function () {
         settings.ragRewriteApiPresetName = String(jQuery(this).val() || '').trim();
+        invalidateLatestRecallSnapshot();
         saveSettingsDebounced();
     });
 
     root.find('#luker_rpg_memory_rag_rewrite_llm_preset').off('change').on('change', function () {
         settings.ragRewriteLlmPresetName = String(jQuery(this).val() || '').trim();
+        invalidateLatestRecallSnapshot();
         saveSettingsDebounced();
     });
 
@@ -15026,11 +15168,13 @@ function bindUi() {
 
     root.find('#luker_rpg_memory_recall_api_preset').off('change').on('change', function () {
         settings.recallApiPresetName = String(jQuery(this).val() || '').trim();
+        invalidateLatestRecallSnapshot();
         saveSettingsDebounced();
     });
 
     root.find('#luker_rpg_memory_recall_preset').off('change').on('change', function () {
         settings.recallPresetName = String(jQuery(this).val() || '').trim();
+        invalidateLatestRecallSnapshot();
         saveSettingsDebounced();
     });
 
@@ -15084,6 +15228,7 @@ function bindUi() {
                 if (!uiRoot?.length) {
                     return;
                 }
+                invalidateLatestRecallSnapshot();
                 const nextScopeInfo = getSchemaScopeInfo(context, settings);
                 updateSchemaSummary(uiRoot, nextScopeInfo.schema);
                 updateSchemaScopeIndicator(uiRoot, nextScopeInfo);
@@ -15199,6 +15344,7 @@ function bindUi() {
         hydrateAdvancedTabFields(root, nextScopeInfo.settings);
         // Also apply back to live settings so any dirty in-memory state is discarded.
         applyAdvancedSettings(settings, nextScopeInfo.settings);
+        invalidateLatestRecallSnapshot();
         markAdvancedTabDirty(root, false);
         notifySuccess(i18nFormat('Cleared character advanced override: ${0}.', info.characterName || info.avatar));
         updateUiStatus(i18nFormat('Cleared character advanced override: ${0}.', info.characterName || info.avatar));
@@ -16042,6 +16188,11 @@ async function drainAndSyncPersistentForCurrentChat() {
         }
         return;
     }
+    // Recall focus is a per-generation artifact. Clear it before the scan so
+    // a missed or still-running GENERATION_ENDED cleanup can never leak the
+    // previous turn's recall candidates into this prompt. Persistent
+    // injection is a separate managed entry and stays untouched.
+    await clearRuntimeLorebookProjection(ctx, settings);
     const store = await ensureStoreSyncedWithChat(ctx);
     if (!store) return;
     try {
@@ -16101,6 +16252,11 @@ export function _getRecallRuntimeStateForTest() {
         activeRecallAbortController,
         pendingMutationInvalidation,
     };
+}
+export function _getLatestRecallSnapshotForTest() {
+    return latestRecallSnapshot
+        ? structuredClone(latestRecallSnapshot)
+        : null;
 }
 export function _resetRecallRuntimeStateForTest(seed = {}) {
     activeRecallRunToken = Number.isFinite(Number(seed.activeRecallRunToken))
