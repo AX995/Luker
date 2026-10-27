@@ -124,7 +124,8 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 
 ### Chat
 
-- Added **Swipe gestures** and **Arrow key swipes** switches to User Settings.
+- Added an **Arrow key swipes** switch to User Settings.
+- The **Swipe gestures** switch is now shown on mobile only.
 
 ### Fixes
 

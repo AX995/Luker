@@ -139,7 +139,7 @@ Generation runs on the backend, streamed to the UI over WebSocket. Reload the ta
 
 ---
 
-A long tail of smaller conveniences rounds it out — grouping for presets and prompts, per-chat persona locks, undo toasts, a trace of which World Info entries fired and why, model lists fetched live from each provider. All of them are documented on the [docs site](https://luker.cups.moe).
+A long tail of smaller conveniences rounds it out — grouping for presets and prompts, personas carried by Character Cards, undo toasts, a trace of which World Info entries fired and why, model lists fetched live from each provider. All of them are documented on the [docs site](https://luker.cups.moe).
 
 ## Screenshots
 

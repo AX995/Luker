@@ -139,7 +139,7 @@ Die Generierung läuft auf dem Backend und wird per WebSocket an die UI gestream
 
 ---
 
-Eine lange Reihe kleiner Annehmlichkeiten rundet das Ganze ab — Gruppen für Presets und Prompts, Persona-Sperren pro Chat, Rückgängig-Toasts, ein Trace, der zeigt, welche Weltinfo-Einträge ausgelöst wurden und warum, sowie Modelllisten, die live vom jeweiligen Anbieter abgerufen werden. All das ist in der [Dokumentation](https://luker.cups.moe) beschrieben.
+Eine lange Reihe kleiner Annehmlichkeiten rundet das Ganze ab — Gruppen für Presets und Prompts, in Charakterkarten mitgelieferte Personas, Rückgängig-Toasts, ein Trace, der zeigt, welche Weltinfo-Einträge ausgelöst wurden und warum, sowie Modelllisten, die live vom jeweiligen Anbieter abgerufen werden. All das ist in der [Dokumentation](https://luker.cups.moe) beschrieben.
 
 ## Screenshots
 
