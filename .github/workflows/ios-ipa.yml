@@ -58,7 +58,7 @@ jobs:
       - name: Setup Xcode
         uses: mobiledevops/xcode-select-version-action@v1
         with:
-          xcode-select-version: "16.4"
+          xcode-select-version: "26.3"
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -101,7 +101,7 @@ jobs:
       - name: Setup Xcode
         uses: mobiledevops/xcode-select-version-action@v1
         with:
-          xcode-select-version: "16.4"
+          xcode-select-version: "26.3"
 
       - name: Install xcodegen
         run: brew install xcodegen
