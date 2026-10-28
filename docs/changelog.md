@@ -61,11 +61,7 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 
 ### iOS App
 
-- Added a native iOS app that bundles the full Luker server and interface.
-- Added best-effort background generation through the shared **Background keep-alive** switch, using a continued-processing task on iOS 26 and a background task on older versions.
-- Added a notification when a reply finishes while Luker is in the background.
-- Added native crash reports, a debug trail, and a diagnostics bundle export.
-- Declared the character-card, character-file, lorebook, preset, settings, and JSONL extensions so the file picker can select them.
+- Added a native iOS app that bundles the full Luker server and interface. See the [iOS guide](/guide/ios).
 
 ### HarmonyOS App
 
