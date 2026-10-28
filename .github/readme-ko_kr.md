@@ -16,6 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
+[![iOS IPA](https://img.shields.io/badge/download-iOS%20IPA-000000?style=flat&logo=apple&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![Desktop app](https://img.shields.io/badge/download-Windows%2C%20macOS%20%26%20Linux-0078d4?style=flat)](https://luker.cups.moe/guide/desktop)
 
 </div>
@@ -92,6 +93,14 @@ Luker 백엔드는 HarmonyOS 앱 *안에서*도 실행됩니다. DevEco Studio�
 ![HarmonyOS 데모](https://raw.githubusercontent.com/funnycups/Luker/release/docs/public/images/branding/harmonyos-demo.gif)
 
 → [HarmonyOS 앱 가이드](https://luker.cups.moe/guide/harmonyos)
+
+### Native iOS 앱 — iPhone과 iPad에서 실행되는 완전한 플랫폼
+
+Luker 백엔드는 iOS 앱 *안에서*도 실행됩니다. 서명되지 않은 IPA를 설치하고 AltStore 또는 SideStore에서 본인의 Apple ID로 서명하면, 기기 한 대에서 완전한 서버와 UI가 실행됩니다 — 터미널도, 수동 Node 설치도, 포트 포워딩도 필요 없습니다.
+
+![iOS 데모](https://raw.githubusercontent.com/funnycups/Luker/release/docs/public/images/branding/ios-demo.gif)
+
+→ [iOS 앱 가이드](https://luker.cups.moe/guide/ios)
 
 ### Native 데스크톱 앱 — Windows, macOS, Linux
 

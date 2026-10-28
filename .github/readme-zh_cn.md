@@ -16,6 +16,7 @@
 [![Docs](https://img.shields.io/badge/docs-luker.cups.moe-orange?style=flat)](https://luker.cups.moe/zh-CN/)
 [![Android APK](https://img.shields.io/badge/download-Android%20APK-3ddc84?style=flat&logo=android&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![HarmonyOS HAP](https://img.shields.io/badge/build-HarmonyOS%20HAP-000000?style=flat)](https://luker.cups.moe/guide/harmonyos)
+[![iOS IPA](https://img.shields.io/badge/download-iOS%20IPA-000000?style=flat&logo=apple&logoColor=white)](https://github.com/funnycups/Luker/releases)
 [![Desktop app](https://img.shields.io/badge/download-Windows%2C%20macOS%20%26%20Linux-0078d4?style=flat)](https://luker.cups.moe/zh-CN/guide/desktop)
 
 </div>
@@ -92,6 +93,14 @@ Luker 的后端同样**内嵌于** HarmonyOS 应用运行。用 DevEco Studio �
 ![HarmonyOS 演示](https://raw.githubusercontent.com/funnycups/Luker/release/docs/public/images/branding/harmonyos-demo.gif)
 
 → [HarmonyOS 应用指南](https://luker.cups.moe/zh-CN/guide/harmonyos)
+
+### 原生 iOS 应用 —— 把整个平台装进 iPhone 与 iPad
+
+Luker 的后端同样**内嵌于** iOS 应用运行。安装未签名 IPA，用 AltStore 或 SideStore 以你自己的 Apple ID 签名，即可在一部设备上获得完整的服务端与界面——无需终端、无需手动安装 Node、无需端口转发。
+
+![iOS 演示](https://raw.githubusercontent.com/funnycups/Luker/release/docs/public/images/branding/ios-demo.gif)
+
+→ [iOS 应用指南](https://luker.cups.moe/zh-CN/guide/ios)
 
 ### 原生桌面应用 —— Windows、macOS、Linux
 
