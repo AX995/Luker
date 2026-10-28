@@ -3,3 +3,4 @@
 
 "NSCameraUsageDescription" = "Luker uses the camera for character card backgrounds and vision inputs.";
 "NSMicrophoneUsageDescription" = "Luker uses the microphone for speech-to-text inputs.";
+"NSLocalNetworkUsageDescription" = "Luker connects to a Luker endpoint on your local network.";

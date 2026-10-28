@@ -16,9 +16,17 @@ final class ViewController: UIViewController {
     private static let serverReadyPollInterval: TimeInterval = 0.5
 
     private let runtime = LukerRuntimeManager.shared
+    private let bridge = LukerBridge()
     private var webView: WKWebView?
     private var downloadShareViewController: UIViewController?
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]
+    private var safeModeTripped = false
+    private var safeModeBanner: UIView?
+    private var pendingCrashShown = false
+    private var isExportingDiagnostics = false
+    #if DEBUG
+    private var didHandleLaunchEndpointArgument = false
+    #endif
 
     private let statusStack: UIStackView = {
         let stack = UIStackView()
@@ -54,9 +62,30 @@ final class ViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        bridge.presenter = self
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleOpenEndpointSettingsNotification),
+            name: LukerDeepLinkRouter.openEndpointSettings,
+            object: nil
+        )
         configureConstraints()
         setBootState(.startingRuntime)
         startRuntime()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        #if DEBUG
+        if !didHandleLaunchEndpointArgument,
+           ProcessInfo.processInfo.arguments.contains("-LukerOpenEndpoint") {
+            didHandleLaunchEndpointArgument = true
+            presentEndpointSettings()
+        }
+        #endif
+        if LukerDeepLinkRouter.shared.consumePendingEndpointSettings() {
+            presentEndpointSettings()
+        }
     }
 
     private func configureConstraints() {
@@ -78,6 +107,19 @@ final class ViewController: UIViewController {
     // MARK: - Boot flow
 
     private func startRuntime() {
+        if !runtime.usesLocalRuntime {
+            LukerDebugTrail.shared.append(
+                category: "native",
+                text: "custom endpoint mode url=\(runtime.serverURL.absoluteString)"
+            )
+            setBootState(.waitingForServer)
+            waitForServer()
+            return
+        }
+
+        let watchdog = LukerBootWatchdog.shared.detectAndArm(dataRoot: runtime.dataRootURL)
+        safeModeTripped = watchdog.tripped
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = self?.runtime.startIfNeeded()
             DispatchQueue.main.async { [weak self] in
@@ -95,16 +137,39 @@ final class ViewController: UIViewController {
 
     private func waitForServer() {
         let deadline = Date().addingTimeInterval(Self.serverReadyTimeout)
+        let startedAt = Date()
+        let localRuntime = runtime.usesLocalRuntime
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             while Date() < deadline {
-                guard let self, self.runtime.isServerReady() else {
-                    Thread.sleep(forTimeInterval: Self.serverReadyPollInterval)
-                    continue
+                guard let self else { return }
+                if self.runtime.isServerReady() {
+                    if localRuntime {
+                        LukerBootWatchdog.shared.markBootSucceeded()
+                    }
+                    DispatchQueue.main.async { [weak self] in
+                        self?.setBootState(.ready)
+                        if self?.safeModeTripped == true {
+                            self?.showSafeModeBanner()
+                        }
+                    }
+                    return
                 }
-                DispatchQueue.main.async { [weak self] in
-                    self?.setBootState(.ready)
+                // A local Node process that has already exited will never make
+                // the port ready; report it instead of waiting out the deadline.
+                if localRuntime, Date().timeIntervalSince(startedAt) > 2, !self.runtime.isNodeRunning {
+                    let detail = self.runtime.collectDiagnostics()
+                    LukerDebugTrail.shared.append(
+                        category: "native",
+                        text: "node exited before the server was ready\n\(detail)"
+                    )
+                    DispatchQueue.main.async { [weak self] in
+                        self?.setBootState(.failed(
+                            reason: NSLocalizedString("runtime_failure_reason_node_exited", comment: "")
+                        ))
+                    }
+                    return
                 }
-                return
+                Thread.sleep(forTimeInterval: Self.serverReadyPollInterval)
             }
             DispatchQueue.main.async { [weak self] in
                 self?.setBootState(.failed(reason: NSLocalizedString("loading_failed_timeout", comment: "")))
@@ -133,7 +198,7 @@ final class ViewController: UIViewController {
             diagnosticsTextView.isHidden = false
             navigationItem.rightBarButtonItems = [
                 UIBarButtonItem(
-                    title: NSLocalizedString("diagnostics_share", comment: ""),
+                    title: NSLocalizedString("diagnostics_export_bundle_short", comment: ""),
                     style: .plain,
                     target: self,
                     action: #selector(shareDiagnostics)
@@ -149,6 +214,7 @@ final class ViewController: UIViewController {
             spinner.stopAnimating()
             statusStack.isHidden = true
             installWebView()
+            showPendingCrashIfNeeded()
         }
     }
 
@@ -158,12 +224,7 @@ final class ViewController: UIViewController {
     }
 
     @objc private func shareDiagnostics() {
-        let text = runtime.collectDiagnostics()
-        let activityViewController = UIActivityViewController(
-            activityItems: [text],
-            applicationActivities: nil
-        )
-        present(activityViewController, animated: true)
+        exportDiagnosticsBundle()
     }
 
     // MARK: - Web view
@@ -171,6 +232,9 @@ final class ViewController: UIViewController {
     private func installWebView() {
         guard webView == nil else { return }
         let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        bridge.presenter = self
+        bridge.install(into: configuration.userContentController)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -184,6 +248,195 @@ final class ViewController: UIViewController {
         ])
         self.webView = webView
         webView.load(URLRequest(url: runtime.serverURL))
+    }
+
+    // MARK: - Diagnostics UI
+
+    func exportDiagnosticsBundle() {
+        guard !isExportingDiagnostics else { return }
+        isExportingDiagnostics = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            do {
+                let zip = try LukerDiagnosticsCenter.shared.export()
+                DispatchQueue.main.async {
+                    self.isExportingDiagnostics = false
+                    self.presentShareSheet(for: zip)
+                }
+            } catch {
+                LukerDebugTrail.shared.append(category: "native", text: "diagnostics export failed: \(error)")
+                DispatchQueue.main.async {
+                    self.isExportingDiagnostics = false
+                    self.showAlert(
+                        title: NSLocalizedString("diagnostics_export_failed_title", comment: ""),
+                        message: String(
+                            format: NSLocalizedString("diagnostics_export_failed", comment: ""),
+                            error.localizedDescription
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private func presentShareSheet(for url: URL) {
+        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = activity.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+        }
+        present(activity, animated: true)
+    }
+
+    private func showPendingCrashIfNeeded() {
+        guard !pendingCrashShown else { return }
+        guard let crash = LukerDiagnosticsCenter.shared.takePendingCrash() else { return }
+        pendingCrashShown = true
+        let summary = String(crash.report.prefix(4000))
+        let message = """
+        \(NSLocalizedString("crash_report_dialog_intro", comment: ""))
+
+        \(summary)
+        """
+        presentReportAlert(
+            title: NSLocalizedString("crash_report_dialog_title", comment: ""),
+            message: message
+        )
+    }
+
+    private func presentReportAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(
+            title: NSLocalizedString("diagnostics_export_bundle", comment: ""),
+            style: .default
+        ) { [weak self] _ in
+            self?.exportDiagnosticsBundle()
+        })
+        alert.addAction(UIAlertAction(
+            title: NSLocalizedString("crash_dialog_close", comment: ""),
+            style: .cancel
+        ))
+        alert.preferredAction = alert.actions.first
+        present(alert, animated: true)
+    }
+
+    private func showAlert(title: String?, message: String?) {
+        guard presentedViewController == nil else {
+            LukerDebugTrail.shared.append(category: "native", text: "alert suppressed title=\(title ?? "") message=\(message ?? "")")
+            return
+        }
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: NSLocalizedString("close", comment: ""), style: .default))
+        present(alert, animated: true)
+    }
+
+    private func showSafeModeBanner() {
+        guard safeModeBanner == nil else { return }
+        let label = UILabel()
+        label.numberOfLines = 0
+        label.font = .preferredFont(forTextStyle: .footnote)
+        label.textColor = .label
+        label.text = NSLocalizedString("safe_mode_tripped_toast", comment: "")
+        label.backgroundColor = .secondarySystemBackground
+        label.layer.cornerRadius = 10
+        label.layer.masksToBounds = true
+        label.textAlignment = .natural
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        view.addSubview(container)
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            container.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            container.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+        ])
+        container.isUserInteractionEnabled = false
+        safeModeBanner = container
+        container.alpha = 0
+        UIView.animate(withDuration: 0.25) {
+            container.alpha = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, let banner = self.safeModeBanner else { return }
+            UIView.animate(withDuration: 0.25, animations: {
+                banner.alpha = 0
+            }, completion: { _ in
+                banner.removeFromSuperview()
+                self.safeModeBanner = nil
+            })
+        }
+    }
+
+    // MARK: - Endpoint settings (reserved entry)
+
+    @objc private func handleOpenEndpointSettingsNotification() {
+        presentEndpointSettings()
+    }
+
+    func presentEndpointSettings() {
+        guard presentedViewController == nil else { return }
+        let selection = LukerEndpointConfig.shared.selection
+        let alert = UIAlertController(
+            title: NSLocalizedString("endpoint_dialog_title", comment: ""),
+            message: NSLocalizedString("endpoint_dialog_message", comment: ""),
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = NSLocalizedString("endpoint_dialog_hint", comment: "")
+            field.text = selection.customBaseURL?.absoluteString
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(
+            title: NSLocalizedString("endpoint_dialog_save", comment: ""),
+            style: .default
+        ) { [weak self, weak alert] _ in
+            let value = alert?.textFields?.first?.text ?? ""
+            do {
+                let saved = try LukerEndpointConfig.shared.save(value)
+                if let saved {
+                    self?.showAlert(
+                        title: NSLocalizedString("endpoint_saved", comment: ""),
+                        message: String(
+                            format: NSLocalizedString("endpoint_restart_required", comment: ""),
+                            saved.absoluteString
+                        )
+                    )
+                } else {
+                    self?.showAlert(
+                        title: NSLocalizedString("endpoint_reset_default_done", comment: ""),
+                        message: NSLocalizedString("endpoint_restart_required_plain", comment: "")
+                    )
+                }
+            } catch {
+                self?.showAlert(
+                    title: NSLocalizedString("endpoint_invalid_url", comment: ""),
+                    message: nil
+                )
+            }
+        })
+        alert.addAction(UIAlertAction(
+            title: NSLocalizedString("endpoint_dialog_reset", comment: ""),
+            style: .destructive
+        ) { [weak self] _ in
+            LukerEndpointConfig.shared.reset()
+            self?.showAlert(
+                title: NSLocalizedString("endpoint_reset_default_done", comment: ""),
+                message: NSLocalizedString("endpoint_restart_required_plain", comment: "")
+            )
+        })
+        alert.addAction(UIAlertAction(
+            title: NSLocalizedString("cancel", comment: ""),
+            style: .cancel
+        ))
+        present(alert, animated: true)
     }
 }
 
@@ -253,9 +506,58 @@ extension ViewController: WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        webView.load(URLRequest(url: runtime.serverURL))
+        let url = webView.url?.absoluteString
+        let crash = LukerDiagnosticsCenter.shared.recordWebViewCrash(url: url, didCrash: false)
+        let message = """
+        \(NSLocalizedString("webview_crash_dialog_intro", comment: ""))
+
+        \(String(crash.report.prefix(2000)))
+        """
+        let alert = UIAlertController(
+            title: NSLocalizedString("webview_crash_dialog_title", comment: ""),
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: NSLocalizedString("diagnostics_export_bundle", comment: ""),
+            style: .default
+        ) { [weak self] _ in
+            self?.exportDiagnosticsBundle()
+        })
+        alert.addAction(UIAlertAction(
+            title: NSLocalizedString("crash_dialog_close", comment: ""),
+            style: .cancel
+        ) { _ in
+            webView.load(URLRequest(url: self.runtime.serverURL))
+        })
+        alert.preferredAction = alert.actions.first
+        present(alert, animated: true)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        LukerDebugTrail.shared.append(category: "native", text: "navigation finished url=\(webView.url?.absoluteString ?? "<none>")")
+        #if DEBUG
+        LukerDebugSmoke.runCrashTestIfRequested()
+        LukerDebugSmoke.runExceptionTestIfRequested()
+        LukerDebugSmoke.runIfRequested(webView: webView)
+        #endif
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        LukerDebugTrail.shared.append(category: "native", text: "navigation failed url=\(webView.url?.absoluteString ?? "<none>") error=\(error)")
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        LukerDebugTrail.shared.append(
+            category: "native",
+            text: "provisional navigation failed url=\(webView.url?.absoluteString ?? "<none>") error=\(error)"
+        )
     }
 }
+
+// MARK: - LukerBridgePresenter
+
+extension ViewController: LukerBridgePresenter {}
 
 // MARK: - WKDownloadDelegate
 

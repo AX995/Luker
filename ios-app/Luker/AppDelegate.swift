@@ -9,7 +9,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        true
+        LukerDiagnosticsCenter.shared.start()
+        LukerNotificationManager.shared.configure()
+        LukerMetricKitSubscriber.shared.start()
+        #if DEBUG
+        LukerDebugSmoke.runEarlyCrashTestIfRequested()
+        #endif
+        return true
     }
 
     func application(

@@ -21,6 +21,9 @@ targets:
   Luker:
     type: application
     platform: iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.luker.app
     sources:
       - path: Luker
         excludes:
@@ -36,7 +39,7 @@ targets:
       properties:
         CFBundleDisplayName: Luker
         CFBundleName: Luker
-        CFBundleIdentifier: com.luker.app
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
@@ -48,8 +51,82 @@ targets:
         # The local server listens on the loopback interface only.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          # A custom endpoint may be plain http on a LAN. The endpoint editor
+          # is not linked from the UI in this build.
+          NSAllowsArbitraryLoads: true
+          NSAllowsArbitraryLoadsInWebContent: true
+        NSLocalNetworkUsageDescription: Luker connects to a Luker endpoint on your local network.
         NSCameraUsageDescription: Luker uses the camera for character card backgrounds and vision inputs.
         NSMicrophoneUsageDescription: Luker uses the microphone for speech-to-text inputs.
+        # Keeps a user-started generation alive after the app moves to the
+        # background. The frontend drives this through LukerIOS.
+        UIBackgroundModes:
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.luker.app.continuedProcessingTask.*
+        CFBundleURLTypes:
+          - CFBundleURLName: com.luker.app
+            CFBundleURLSchemes:
+              - luker
+        # Makes the character-card, lorebook, preset and log extensions
+        # selectable in the system document picker. WebKit filters the picker
+        # by UTI, so an undeclared extension is greyed out even when the page
+        # accepts it.
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.luker.file.charx
+            UTTypeDescription: Luker Character Card
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - charx
+              public.mime-type:
+                - application/octet-stream
+          - UTTypeIdentifier: com.luker.file.byaf
+            UTTypeDescription: Character File
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - byaf
+              public.mime-type:
+                - application/octet-stream
+          - UTTypeIdentifier: com.luker.file.lorebook
+            UTTypeDescription: Lorebook
+            UTTypeConformsTo:
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - lorebook
+              public.mime-type:
+                - application/json
+          - UTTypeIdentifier: com.luker.file.settings
+            UTTypeDescription: Luker Settings
+            UTTypeConformsTo:
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - settings
+              public.mime-type:
+                - application/json
+          - UTTypeIdentifier: com.luker.file.preset
+            UTTypeDescription: Luker Preset
+            UTTypeConformsTo:
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - preset
+              public.mime-type:
+                - application/json
+          - UTTypeIdentifier: com.luker.file.jsonl
+            UTTypeDescription: JSON Lines
+            UTTypeConformsTo:
+              - public.text
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - jsonl
+              public.mime-type:
+                - application/x-ndjson
 schemes:
   Luker:
     build:

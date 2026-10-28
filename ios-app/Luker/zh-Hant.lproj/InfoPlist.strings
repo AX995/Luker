@@ -3,3 +3,4 @@
 
 "NSCameraUsageDescription" = "Luker 使用相機來設定角色卡背景與傳送影像輸入。";
 "NSMicrophoneUsageDescription" = "Luker 使用麥克風來接收語音輸入。";
+"NSLocalNetworkUsageDescription" = "Luker 會連線本地網路中的 Luker 端點。";

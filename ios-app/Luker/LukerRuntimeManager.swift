@@ -17,6 +17,7 @@ final class LukerRuntimeManager {
     private static let runtimeMarkerName = ".runtime-version"
     private static let runtimeDirName = "luker-runtime"
     private static let persistentDataDirName = "luker-data"
+    private static let diagnosticsDirName = "luker-diagnostics"
     private static let configFileName = "config.yaml"
     private static let runtimePersistDirName = "_runtime-persist"
     private static let serverPluginsDirName = "plugins"
@@ -40,8 +41,28 @@ final class LukerRuntimeManager {
     private var started = false
     private(set) var serverPort: Int = LukerRuntimeManager.defaultServerPort
 
-    var serverURL: URL {
+    var localServerURL: URL {
         URL(string: "http://127.0.0.1:\(serverPort)")!
+    }
+
+    var serverURL: URL {
+        LukerEndpointConfig.shared.selection.customBaseURL ?? localServerURL
+    }
+
+    var dataRootURL: URL {
+        dataRoot
+    }
+
+    var isNodeRunning: Bool {
+        luker_node_is_running()
+    }
+
+    var usesLocalRuntime: Bool {
+        LukerEndpointConfig.shared.selection.usesLocalRuntime
+    }
+
+    var diagnosticsRootURL: URL {
+        applicationSupportRoot.appendingPathComponent(Self.diagnosticsDirName, isDirectory: true)
     }
 
     struct StartResult {
@@ -73,9 +94,10 @@ final class LukerRuntimeManager {
     // MARK: - Same-origin policy
 
     func isSameOriginURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        guard url.scheme?.lowercased() == "http", url.host == "127.0.0.1" else { return false }
-        return url.port == serverPort
+        guard let url, let base = URL(string: serverURL.absoluteString) else { return false }
+        return url.scheme?.lowercased() == base.scheme?.lowercased()
+            && url.host?.lowercased() == base.host?.lowercased()
+            && url.port == base.port
     }
 
     // MARK: - Start
@@ -101,6 +123,8 @@ final class LukerRuntimeManager {
             let arguments: [String] = [
                 "node",
                 "--preserve-symlinks",
+                "--report-on-fatalerror",
+                "--report-directory", paths.runtimeRoot.path,
                 script.path,
                 "--port", String(selectedPort),
                 "--dataRoot", paths.dataRoot.path,
@@ -540,6 +564,7 @@ final class LukerRuntimeManager {
         lines.append("runtimeDir=\(runtimeRoot.path)")
         lines.append("dataRoot=\(dataRoot.path)")
         lines.append("serverURL=\(serverURL.absoluteString)")
+        lines.append("endpointMode=\(LukerEndpointConfig.shared.selection.usesLocalRuntime ? "local" : "custom")")
         lines.append(
             "exists(runtimeDir)=\(manager.fileExists(atPath: runtimeRoot.path))"
                 + ", exists(dataRoot)=\(manager.fileExists(atPath: dataRoot.path))"

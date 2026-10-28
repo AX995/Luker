@@ -16,5 +16,19 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = ViewController()
         window.makeKeyAndVisible()
         self.window = window
+
+        for context in connectionOptions.urlContexts {
+            LukerDeepLinkRouter.shared.handle(context.url)
+        }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts {
+            LukerDeepLinkRouter.shared.handle(context.url)
+        }
+    }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        LukerNotificationManager.shared.refreshAuthorizationStatus()
     }
 }
