@@ -1,3 +1,4 @@
+
 # Codemagic CI — builds the unsigned Luker iOS IPA without a Mac.
 # Mirrors .github/workflows/ios-ipa.yml; the IPA is unsigned on purpose and is
 # signed on-device with your own Apple ID (SideStore / AltStore).
@@ -31,9 +32,3 @@ workflows:
           bash ios-app/scripts/build-ios-ipa.sh debug
     artifacts:
       - ios-app/dist/*.ipa
-    publishing:
-      email:
-        recipients: []
-        notify:
-          success: false
-          failure: false
