@@ -59,6 +59,14 @@ This changelog covers every Luker release, from v1.0.0 to the current developmen
 - Fixed ZIP restores importing the built-in extensions as third-party extensions when the archive contains the source tree, which made every built-in extension fail to load.
 - Fixed onboarding completion overwriting API connection profiles and personas imported from a Data ZIP.
 
+### iOS App
+
+- Added a native iOS app that bundles the full Luker server and interface.
+- Added best-effort background generation through the shared **Background keep-alive** switch, using a continued-processing task on iOS 26 and a background task on older versions.
+- Added a notification when a reply finishes while Luker is in the background.
+- Added native crash reports, a debug trail, and a diagnostics bundle export.
+- Declared the character-card, character-file, lorebook, preset, settings, and JSONL extensions so the file picker can select them.
+
 ### HarmonyOS App
 
 - Added a native HarmonyOS app that bundles the full Luker server and interface and runs standalone on the device, built from source and signed with your Huawei developer account. See the [HarmonyOS guide](/guide/harmonyos).

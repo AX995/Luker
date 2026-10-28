@@ -36,9 +36,17 @@ Luker starts its local server and opens the interface. The first launch takes a 
 
 The app runs on the device. After installation, you do not need a computer or a remote server.
 
+## Background generation and notifications
+
+Turn on **Background keep-alive** in User Settings to keep a generation running while Luker is in the background. iOS may suspend the app when it needs resources, so a generation is not guaranteed to finish.
+
+Turn on **Show a notification when message generation finishes while Luker is in the background** to receive a local notification when a reply finishes. The system asks for notification permission when you turn on the setting. Notifications are sent only while Luker is running.
+
+If startup fails or the app exits unexpectedly, Luker offers to export a diagnostics bundle. The bundle contains native logs, crash reports, the embedded service log, and the WebView console trail.
+
 ## Limitations
 
-- The local server pauses when the app goes to the background. Return to the app to continue.
+- Background generation is best effort. iOS may suspend the app when it needs resources.
 - Updates come from GitHub Releases and are signed again. Use the same Apple ID and install over the existing app.
 - If you need to change the Apple ID used for signing, [back up your data](/features/user-settings-additions#backup-migration-and-storage), delete the old app, and install the new one.
 

@@ -4,6 +4,7 @@ This directory contains an iOS shell app that runs the Luker backend locally on 
 
 - **WebView UI**: loads `http://127.0.0.1:8000` (probes 8000..8049 when busy)
 - **Backend runtime**: Node.js Mobile (`NodeMobile.xcframework`, arm64 device, jitless)
+- **Endpoint**: local runtime by default; the reserved `luker://endpoint` deep link opens an editor that stores a remote http(s) base URL and skips the local Node process on the next launch
 - **App boot flow**:
   1. copy the bundled `nodejs-project` tree to app-private storage (`Application Support/luker-runtime`)
   2. start Node on a background thread with `bootstrap.js`
@@ -77,6 +78,9 @@ Mirrors `android-apk.yml`:
 
 ## Platform limits (differences from Android)
 
-- iOS suspends the app in the background: the local server only runs while the app is in the foreground. There is no equivalent of the Android foreground service.
+- iOS suspends the app in the background. Background generation uses a generation-scoped background task (`BGContinuedProcessingTask` on iOS 26+, `beginBackgroundTask` on older systems) and remains best effort; the system may end it at any time.
 - The embedded Node runtime is built jitless (no JIT, no WebAssembly on iOS); local inference, AVIF/WebP images and non-OpenAI exact tokenization are degraded — same as the HarmonyOS build.
-- Out of scope for the first shell version: push-style reply notifications, the custom-endpoint override dialog, safe-mode extension tripping, and CDP debug capture. The diagnostics screen shares `bootstrap.log` and Node `report.*.json` artifacts instead of the Android diagnostics bundle.
+- Reply completion notifications are local notifications. There is no APNs, so nothing is delivered after the app is suspended or killed.
+- `luker://endpoint` opens the endpoint editor. No visible entry links to it yet.
+- The diagnostics bundle contains the native trail, crash reports, OSLog entries, the embedded service log and Node report artifacts.
+- The file picker declares the character-card, lorebook, preset, settings and JSONL extensions.
