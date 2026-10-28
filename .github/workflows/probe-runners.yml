@@ -1,0 +1,14 @@
+name: Probe Runners
+on: workflow_dispatch
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, macos-15, macos-26, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Where am I
+        run: sw_vers 2>/dev/null || uname -a
+      - name: Xcode
+        run: xcodebuild -version 2>/dev/null || echo "no xcodebuild"
