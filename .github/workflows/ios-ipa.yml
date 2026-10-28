@@ -1,3 +1,4 @@
+
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 FunnyCups (https://github.com/funnycups)
 
@@ -42,7 +43,6 @@ env:
 jobs:
   build-debug-ipa:
     if: >
-      github.repository == 'funnycups/Luker' &&
       ((github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'debug'))
     runs-on: macos-15
     steps:
@@ -75,7 +75,6 @@ jobs:
 
   build-release-ipa:
     if: >
-      github.repository == 'funnycups/Luker' &&
       ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'release'))
     runs-on: macos-15
     steps:
