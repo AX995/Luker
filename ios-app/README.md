@@ -12,6 +12,12 @@ This directory contains an iOS shell app that runs the Luker backend locally on 
 
 The bootstrap script itself is shared with Android: the build copies `android-app/app/src/main/assets/nodejs-project/bootstrap.js` into the staged bundle, so the two shells stay behavior-identical.
 
+## Demo
+
+![Luker running in the iOS Simulator](../docs/public/images/branding/ios-demo.gif)
+
+The clip starts at first-run setup and ends on the main screen served by the in-app Node runtime.
+
 ## Distribution model
 
 Both CI flavors produce an **unsigned** IPA. Apple's App Store terms conflict with the AGPL free-redistribution requirements, so the app is not published to the App Store, and the project never ships a signed IPA. Users sign it with their own Apple ID via AltStore/SideStore (free Apple IDs expire after 7 days; paid developer accounts last a year). See `docs/guide/ios.md` for the user-facing install guide.
